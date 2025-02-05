@@ -171,7 +171,7 @@ def frame_to_filters(frame, signals):
     return filters
 
 
-def generate_timer():
+def generate_timer(stop):
     entities = [
         {
             "entity_number": 1,
@@ -201,7 +201,7 @@ def generate_timer():
                                     "name": "signal-S",
                                     "quality": "normal",
                                     "comparator": "=",
-                                    "count": 105
+                                    "count": stop
                                 }
                             ]
                         }
@@ -455,7 +455,7 @@ def generate_lamps(lamp_signals, grid_width, grid_height,
     return lamp_entities, lamp_wires, current_entity
 
 
-def update_full_blueprint(blueprint, frames_filters, lamp_signals,
+def update_full_blueprint(target_fps, frames_filters, lamp_signals,
                           lamp_grid_width, lamp_grid_height):
     """
     Build a new blueprint from scratch using frames_filters for the combinators
@@ -467,7 +467,10 @@ def update_full_blueprint(blueprint, frames_filters, lamp_signals,
 
     Returns the updated blueprint dictionary.
     """
-    timer_entites, timer_wires = generate_timer()
+    blueprint = empty_blueprint()
+
+    stop = int(len(frames_filters) * (60 / target_fps))
+    timer_entites, timer_wires = generate_timer(stop=stop)
 
     combinator_entities, combinator_wires, next_entity = generate_frame_combinators(
         frames_filters, base_entity_number=4
@@ -511,12 +514,13 @@ def main():
     # The DLC has more signals, allowing for larger images
     signals_path = "signals.json"
     signals = load_signals(signals_path)
+    target_fps = 4
 
     # We'll want to eventually parameterize the max size with a limit. We should theoretically be able to get up to ~700 pixels tall in the base game
     # and a few thousand with the DLC (including quality)
     downscaled_frames = downscale_gif("input.gif", max_size=30)
 
-    sampled_frames = sample_frames(downscaled_frames, target_fps=4)
+    sampled_frames = sample_frames(downscaled_frames, target_fps=target_fps)
 
     # For each sampled frame, convert its pixels into filters. Make sure that the number
     # of pixels (width * height) does not exceed the number of available signals.
@@ -530,7 +534,7 @@ def main():
         frames_filters.append(filters)
 
     width, height = sampled_frames[0].size
-    updated_blueprint = update_full_blueprint(empty_blueprint(), frames_filters, signals, width, height)
+    updated_blueprint = update_full_blueprint(target_fps, frames_filters, signals, width, height)
 
     # Save the updated blueprint for debugging
     # with open("blueprint.json", "w") as f:

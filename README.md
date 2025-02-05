@@ -1,6 +1,6 @@
-# Giftorio
+# GIFtorio
 
-Giftorio is a Python script that converts animated GIFs into Factorio blueprints. The resulting blueprint creates an animated display using the game's circuit network and lamp display system.
+GIFtorio is a Python script that converts animated GIFs into Factorio blueprints. The resulting blueprint creates an animated display using the game's circuit network and lamp display system.
 
 ## Description
 
