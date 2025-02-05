@@ -72,6 +72,7 @@ def downscale_gif(input_path, max_size=30, output_path=None):
 
     return frames
 
+
 def sample_frames(frames, target_fps=4):
     """
     Resample frames evenly to achieve the target FPS.
@@ -170,11 +171,116 @@ def frame_to_filters(frame, signals):
     return filters
 
 
-def update_blueprint_with_frame_filters_and_wires(frames_filters,
-                                                  base_entity_number=1,
-                                                  base_constant_x=0.5,
-                                                  base_decider_x=2,
-                                                  base_y=0):
+def generate_timer():
+    entities = [
+        {
+            "entity_number": 1,
+            "name": "constant-combinator",
+            "position": {
+                "x": -2.5,
+                "y": -4.0
+            },
+            "direction": 4,
+            "control_behavior": {
+                "sections": {
+                    "sections": [
+                        {
+                            "index": 1,
+                            "filters": [
+                                {
+                                    "index": 1,
+                                    "type": "virtual",
+                                    "name": "signal-T",
+                                    "quality": "normal",
+                                    "comparator": "=",
+                                    "count": 1
+                                },
+                                {
+                                    "index": 2,
+                                    "type": "virtual",
+                                    "name": "signal-S",
+                                    "quality": "normal",
+                                    "comparator": "=",
+                                    "count": 105
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "entity_number": 2,
+            "name": "decider-combinator",
+            "position": {
+                "x": -1.5,
+                "y": -4.0
+            },
+            "direction": 4,
+            "control_behavior": {
+                "decider_conditions": {
+                    "conditions": [
+                        {
+                            "first_signal": {
+                                "type": "virtual",
+                                "name": "signal-T"
+                            },
+                            "second_signal": {
+                                "type": "virtual",
+                                "name": "signal-S"
+                            },
+                            "comparator": "<="
+                        }
+                    ],
+                    "outputs": [
+                        {
+                            "signal": {
+                                "type": "virtual",
+                                "name": "signal-T"
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "entity_number": 3,
+            "name": "arithmetic-combinator",
+            "position": {
+                "x": -1.5,
+                "y": -3.0
+            },
+            "direction": 12,
+            "control_behavior": {
+                "arithmetic_conditions": {
+                    "first_signal": {
+                        "type": "virtual",
+                        "name": "signal-T"
+                    },
+                    "second_constant": 1,
+                    "operation": "+",
+                    "output_signal": {
+                        "type": "virtual",
+                        "name": "signal-T"
+                    }
+                }
+            }
+        }
+    ]
+
+    # Kinda hacky, but we need to just connect the timer to the combinators and the combinators to the image for now
+    wires = []
+    wires.append([1, 1, 2, 1])  # constant to decider in
+    wires.append([2, 2, 3, 4])  # decider in to arithmetic out
+    wires.append([2, 4, 3, 2])  # arithmetic in to decider out
+    wires.append([2, 4, 5, 2])  # decider of timer to first decider of frames
+    return entities, wires
+
+def generate_frame_combinators(frames_filters,
+                               base_entity_number=1,
+                               base_constant_x=0.5,
+                               base_decider_x=1.5,
+                               base_y=-3.0):
     """
     Rebuild the blueprint's combinator entities and wires based on frames_filters.
 
@@ -198,7 +304,7 @@ def update_blueprint_with_frame_filters_and_wires(frames_filters,
 
     # Build combinator pairs (constant and decider) for each frame.
     for i, filters in enumerate(frames_filters):
-        current_y = base_y + i
+        current_y = base_y - i
 
         # Create the constant combinator.
         constant_entity = {
@@ -291,7 +397,7 @@ def update_blueprint_with_frame_filters_and_wires(frames_filters,
 
 
 def generate_lamps(lamp_signals, grid_width, grid_height,
-                   start_entity_number, start_x=5, start_y=0):
+                   start_entity_number, start_x=0, start_y=0):
     """
     Generate a grid of lamp entities and wiring for a lamp grid.
 
@@ -334,7 +440,7 @@ def generate_lamps(lamp_signals, grid_width, grid_height,
 
     # Horizontal wiring: Connect adjacent lamps in the top row.
     for c in range(grid_width - 1):
-        source = lamp_entities[c]           # top row: r == 0, so index c.
+        source = lamp_entities[c]  # top row: r == 0, so index c.
         dest = lamp_entities[c + 1]
         lamp_wires.append([source["entity_number"], 1,
                            dest["entity_number"], 1])
@@ -361,8 +467,10 @@ def update_full_blueprint(blueprint, frames_filters, lamp_signals,
 
     Returns the updated blueprint dictionary.
     """
-    combinator_entities, combinator_wires, next_entity = update_blueprint_with_frame_filters_and_wires(
-        frames_filters, base_entity_number=1
+    timer_entites, timer_wires = generate_timer()
+
+    combinator_entities, combinator_wires, next_entity = generate_frame_combinators(
+        frames_filters, base_entity_number=4
     )
 
     lamp_entities, lamp_wires, final_entity = generate_lamps(
@@ -370,8 +478,11 @@ def update_full_blueprint(blueprint, frames_filters, lamp_signals,
         start_entity_number=next_entity
     )
 
-    blueprint["blueprint"]["entities"] = combinator_entities + lamp_entities
-    blueprint["blueprint"]["wires"] = combinator_wires + lamp_wires
+    # Hacky, remove when we have a better way to do this
+    combinator_wires.append([5, 3, next_entity, 1])
+
+    blueprint["blueprint"]["entities"] = timer_entites + combinator_entities + lamp_entities
+    blueprint["blueprint"]["wires"] = timer_wires + combinator_wires + lamp_wires
 
     return blueprint
 
