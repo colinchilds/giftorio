@@ -229,7 +229,7 @@ def generate_timer(stop):
                                 "type": "virtual",
                                 "name": "signal-S"
                             },
-                            "comparator": "<="
+                            "comparator": "<"
                         }
                     ],
                     "outputs": [
@@ -277,6 +277,7 @@ def generate_timer(stop):
     return entities, wires
 
 def generate_frame_combinators(frames_filters,
+                               ticks_per_frame=15,
                                base_entity_number=1,
                                base_constant_x=0.5,
                                base_decider_x=1.5,
@@ -328,9 +329,8 @@ def generate_frame_combinators(frames_filters,
         }
         current_entity_number += 1
 
-        # Determine tick range: each frame lasts 15 ticks.
-        lower_bound = i * 15
-        upper_bound = (i + 1) * 15
+        lower_bound = i * ticks_per_frame
+        upper_bound = (i + 1) * ticks_per_frame
 
         # Create the decider combinator.
         decider_entity = {
@@ -469,11 +469,12 @@ def update_full_blueprint(target_fps, frames_filters, lamp_signals,
     """
     blueprint = empty_blueprint()
 
-    stop = int(len(frames_filters) * (60 / target_fps))
+    ticks_per_frame = 60.0 / target_fps
+    stop = int(len(frames_filters) * ticks_per_frame)
     timer_entites, timer_wires = generate_timer(stop=stop)
 
     combinator_entities, combinator_wires, next_entity = generate_frame_combinators(
-        frames_filters, base_entity_number=4
+        frames_filters, ticks_per_frame=ticks_per_frame, base_entity_number=4
     )
 
     lamp_entities, lamp_wires, final_entity = generate_lamps(
