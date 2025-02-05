@@ -72,7 +72,7 @@ def downscale_gif(input_path, max_size=30, output_path=None):
 
     return frames
 
-def sample_frames(frames, original_frame_duration=100, target_fps=4):
+def sample_frames(frames, target_fps=4):
     """
     Resample frames evenly to achieve the target FPS.
 
@@ -87,7 +87,14 @@ def sample_frames(frames, original_frame_duration=100, target_fps=4):
       A list of PIL.Image objects sampled at the target FPS.
     """
     total_frames = len(frames)
-    total_time_ms = total_frames * original_frame_duration
+
+    # Calculate the total time in milliseconds for all frames.
+    total_time_ms = 0
+    for frame in frames:
+        total_time_ms += frame.info['duration']
+
+    # Calculate the average duration of a frame, since gifs can have variable frame durations.
+    avg_frame_duration = total_time_ms / total_frames
 
     # Calculate how many frames we want in the output.
     target_total_frames = int(total_time_ms / 1000 * target_fps)
@@ -96,7 +103,7 @@ def sample_frames(frames, original_frame_duration=100, target_fps=4):
     for i in range(target_total_frames):
         target_time = i * (1000 / target_fps)
         # Determine the closest original frame index.
-        orig_index = int(round(target_time / original_frame_duration))
+        orig_index = int(round(target_time / avg_frame_duration))
         if orig_index >= total_frames:
             orig_index = total_frames - 1
         sampled_frames.append(frames[orig_index])
@@ -398,9 +405,7 @@ def main():
     # and a few thousand with the DLC (including quality)
     downscaled_frames = downscale_gif("input.gif", max_size=30)
 
-    # Here, we assume each original frame lasts 100ms (10 FPS).
-    # TODO: try to get the actual frame duration so we can more close match it with the original gif
-    sampled_frames = sample_frames(downscaled_frames, original_frame_duration=100, target_fps=4)
+    sampled_frames = sample_frames(downscaled_frames, target_fps=4)
 
     # For each sampled frame, convert its pixels into filters. Make sure that the number
     # of pixels (width * height) does not exceed the number of available signals.
