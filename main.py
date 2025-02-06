@@ -216,13 +216,47 @@ def generate_timer(stop):
         }
     ]
 
-    # Kinda hacky, but we need to just connect the timer to the combinators and the combinators to the image for now
     wires = []
     wires.append([1, 1, 2, 1])  # constant to decider in
     wires.append([2, 2, 3, 4])  # decider in to arithmetic out
     wires.append([2, 4, 3, 2])  # arithmetic in to decider out
-    wires.append([2, 4, 5, 2])  # decider of timer to first decider of frames
     return entities, wires
+
+
+def generate_substations(coverage, full_width, full_height, start_entity_number):
+    """
+    Generate substations to power the entire blueprint.
+    Returns (substation_entities, substation_wires, next_entity_number).
+    """
+    substation_entities = []
+    substation_wires = []
+    current_entity = start_entity_number
+
+    num_substations_width = math.ceil((full_width - ((coverage - 2) / 2)) / coverage) + 1
+    num_substations_height = math.ceil((full_height - ((coverage - 2) / 2)) / coverage) + 1
+    start_x = -1
+    start_y = -1
+
+    for i in range(num_substations_height):
+        for j in range(num_substations_width):
+            substation = {
+                "entity_number": current_entity,
+                "name": "substation",
+                "position": {"x": start_x + j * coverage, "y": start_y + i * coverage}
+            }
+            substation_entities.append(substation)
+
+            # add a wire to the left and up if there is a substation there
+            if i > 0:
+                substation_wires.append([current_entity, 5, current_entity - num_substations_width, 5])
+            if j > 0:
+                substation_wires.append([current_entity, 5, current_entity - 1, 5])
+
+            current_entity += 1
+
+
+    return substation_entities, substation_wires, current_entity
+
 
 
 def generate_frame_combinators(frames_filters,
@@ -381,6 +415,12 @@ def update_full_blueprint(target_fps, sampled_frames, signals):
     next_entity = max(e["entity_number"] for e in timer_entities) + 1
     previous_first_decider_entity = None
 
+    # Place substations
+    substation_coverage = 18
+    substation_entities, substation_wires, next_entity = generate_substations(substation_coverage, full_width, full_height, next_entity)
+    all_entities.extend(substation_entities)
+    all_wires.extend(substation_wires)
+
     # Process each group (vertical stripe).
     for group_index in range(num_groups):
         group_left = group_index * max_columns_per_group
@@ -425,6 +465,8 @@ def update_full_blueprint(target_fps, sampled_frames, signals):
         first_decider_entity = group_combinators[1]["entity_number"]
         first_lamp_entity = group_lamps[0]["entity_number"]
         group_comb_wires.append([first_lamp_entity, 1, first_decider_entity, 3])
+        if group_index == 0:
+            group_comb_wires.append([2, 4, first_decider_entity, 2])  # decider of timer to first decider of frames
 
         # TODO: connect the first decider of this group to the first decider of the last group. Input to input on the green wire
         if previous_first_decider_entity:
