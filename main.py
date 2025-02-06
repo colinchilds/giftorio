@@ -226,10 +226,11 @@ def generate_timer(stop):
 def generate_substations(coverage, full_width, full_height, start_entity_number):
     """
     Generate substations to power the entire blueprint.
-    Returns (substation_entities, substation_wires, next_entity_number).
+    Returns (substation_entities, substation_wires, occupied_cells, next_entity_number).
     """
     substation_entities = []
     substation_wires = []
+    occupied_cells = set()
     current_entity = start_entity_number
 
     num_substations_width = math.ceil((full_width - ((coverage - 2) / 2)) / coverage) + 1
@@ -239,11 +240,14 @@ def generate_substations(coverage, full_width, full_height, start_entity_number)
 
     for i in range(num_substations_height):
         for j in range(num_substations_width):
+            x = start_x + j * coverage
+            y = start_y + i * coverage
             substation = {
                 "entity_number": current_entity,
-                "name": "substation",
-                "position": {"x": start_x + j * coverage, "y": start_y + i * coverage}
+                "name": "substation", # TODO: Add in quality here
+                "position": {"x": start_x + j * coverage, "y": y}
             }
+            occupied_cells.update({(x - 1, y - 1), (x - 1, y), (x, y - 1), (x, y)})
             substation_entities.append(substation)
 
             # add a wire to the left and up if there is a substation there
@@ -255,7 +259,7 @@ def generate_substations(coverage, full_width, full_height, start_entity_number)
             current_entity += 1
 
 
-    return substation_entities, substation_wires, current_entity
+    return substation_entities, substation_wires, occupied_cells, current_entity
 
 
 
@@ -342,7 +346,7 @@ def generate_frame_combinators(frames_filters,
     return new_entities, wires, current_entity_number
 
 
-def generate_lamps(lamp_signals, grid_width, grid_height,
+def generate_lamps(lamp_signals, grid_width, grid_height, occupied_cells,
                    start_entity_number, start_x=0, start_y=0):
     """
     Generate a grid of lamp entities and wiring.
@@ -353,13 +357,18 @@ def generate_lamps(lamp_signals, grid_width, grid_height,
     current_entity = start_entity_number
 
     # Create lamp entities in row‑major order.
+    previous_entities = {}
     for r in range(grid_height):
         for c in range(grid_width):
+            x = start_x + c
+            y = start_y + r
+            if (x, y) in occupied_cells:
+                continue
             index = r * grid_width + c
             lamp = {
                 "entity_number": current_entity,
                 "name": "small-lamp",
-                "position": {"x": start_x + c, "y": start_y + r},
+                "position": {"x": x, "y": y},
                 "control_behavior": {
                     "use_colors": True,
                     "rgb_signal": lamp_signals[index],
@@ -368,21 +377,16 @@ def generate_lamps(lamp_signals, grid_width, grid_height,
                 "always_on": True
             }
             lamp_entities.append(lamp)
+
+            # Connect the wire to the previous lamp up, and left if it's on the top row
+            if r == 0 and c > 0:
+                lamp_wires.append([current_entity, 1, current_entity - 1, 1])
+            if r > 0:
+                lamp_wires.append([current_entity, 1, previous_entities[x], 1])
+
+            previous_entities[x] = current_entity
             current_entity += 1
 
-    # Horizontal wiring on top row.
-    for c in range(grid_width - 1):
-        source = lamp_entities[c]
-        dest = lamp_entities[c + 1]
-        lamp_wires.append([source["entity_number"], 1,
-                           dest["entity_number"], 1])
-    # Vertical wiring.
-    for c in range(grid_width):
-        for r in range(grid_height - 1):
-            source = lamp_entities[r * grid_width + c]
-            dest = lamp_entities[(r + 1) * grid_width + c]
-            lamp_wires.append([source["entity_number"], 1,
-                               dest["entity_number"], 1])
     return lamp_entities, lamp_wires, current_entity
 
 
@@ -416,8 +420,8 @@ def update_full_blueprint(target_fps, sampled_frames, signals):
     previous_first_decider_entity = None
 
     # Place substations
-    substation_coverage = 18
-    substation_entities, substation_wires, next_entity = generate_substations(substation_coverage, full_width, full_height, next_entity)
+    substation_coverage = 18 # TODO: parameterize with substation quality
+    substation_entities, substation_wires, occupied_cells, next_entity = generate_substations(substation_coverage, full_width, full_height, next_entity)
     all_entities.extend(substation_entities)
     all_wires.extend(substation_wires)
 
@@ -456,6 +460,7 @@ def update_full_blueprint(target_fps, sampled_frames, signals):
             lamp_signals=group_lamp_signals,
             grid_width=group_width,
             grid_height=full_height,
+            occupied_cells=occupied_cells,
             start_entity_number=next_entity,
             start_x=group_offset_x,
             start_y=0
