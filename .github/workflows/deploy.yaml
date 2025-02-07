@@ -21,16 +21,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install local crate
-        run: |
-          ls
-          cd web
-          ls
-          cargo install
-
       - name: Build with wasm-pack
         run: |
           cd web
+          cargo install wasm-pack
           wasm-pack build --target web --release
 
       - name: Prepare deployment directory
