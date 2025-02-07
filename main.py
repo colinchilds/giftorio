@@ -223,12 +223,20 @@ def generate_timer(stop):
     return entities, wires
 
 
-def generate_substations(coverage, lamp_width, lamp_height, frame_count, start_entity_number):
+def generate_substations(substation_quality, lamp_width, lamp_height, frame_count, start_entity_number):
     """
     Generate substations to power the entire blueprint.
     We always want a row of substations starting at -1,-1 (the top left corner of the lamp grid)
     Returns (substation_entities, substation_wires, occupied_cells, next_entity_number).
     """
+    quality_map = {
+        'normal': 18,
+        'uncommon': 20,
+        'rare': 22,
+        'epic': 24,
+        'legendary': 28
+    }
+    coverage = quality_map.get(substation_quality, 18)
     substation_entities = []
     substation_wires = []
     occupied_cells = set()
@@ -258,6 +266,8 @@ def generate_substations(coverage, lamp_width, lamp_height, frame_count, start_e
                 "name": "substation", # TODO: Add in quality here
                 "position": {"x": start_x + j * coverage, "y": y}
             }
+            if substation_quality != 'normal':
+                substation['quality'] = substation_quality
             occupied_cells.update({(x - 1, y - 1), (x - 1, y), (x, y - 1), (x, y)})
             substation_entities.append(substation)
 
@@ -408,7 +418,7 @@ def generate_lamps(lamp_signals, grid_width, grid_height, occupied_cells,
     return lamp_entities, lamp_wires, current_entity
 
 
-def update_full_blueprint(target_fps, sampled_frames, signals):
+def update_full_blueprint(target_fps, sampled_frames, signals, substation_quality):
     """
     Build a new blueprint using multiple groups.
     We break the full image (and frames) into vertical chunks (groups)
@@ -437,9 +447,8 @@ def update_full_blueprint(target_fps, sampled_frames, signals):
     next_entity = max(e["entity_number"] for e in timer_entities) + 1
 
     # Place substations
-    substation_coverage = 18 # TODO: parameterize with substation quality
     substation_entities, substation_wires, occupied_cells, next_entity = (
-        generate_substations(substation_coverage, full_width, full_height, total_frames, next_entity))
+        generate_substations(substation_quality, full_width, full_height, total_frames, next_entity))
     all_entities.extend(substation_entities)
     all_wires.extend(substation_wires)
     # Get the set of y values (integers) that are occupied by substations.
@@ -529,9 +538,11 @@ def main():
     signals_path = "signals.json"
     signals = load_signals(signals_path)
     target_fps = 10
+    target_size = 100
+    substation_quality = 'normal'
 
     # Downscale and sample the GIF.
-    downscaled_frames = downscale_gif("input.gif", max_size=100)
+    downscaled_frames = downscale_gif("input.gif", max_size=target_size)
     sampled_frames = sample_frames(downscaled_frames, target_fps=target_fps)
 
     # Check that the image’s height is not zero.
@@ -540,7 +551,7 @@ def main():
         sys.exit(1)
 
     # Build the blueprint using the multi‐group approach.
-    updated_blueprint = update_full_blueprint(target_fps, sampled_frames, signals)
+    updated_blueprint = update_full_blueprint(target_fps, sampled_frames, signals, substation_quality)
 
     # Uncomment below to save the blueprint JSON for debugging.
     # with open("blueprint.json", "w") as f:
