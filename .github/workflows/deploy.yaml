@@ -23,8 +23,10 @@ jobs:
 
       - name: Install local crate
         run: |
+          ls
           cd web
-          cargo install --path .
+          ls
+          cargo install
 
       - name: Build with wasm-pack
         run: |
