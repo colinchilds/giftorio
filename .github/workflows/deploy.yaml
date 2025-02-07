@@ -1,0 +1,49 @@
+name: Build and Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  content: read
+  id-token: write
+  pages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install local crate
+        run: |
+          cd web
+          cargo install --path .
+
+      - name: Build with wasm-pack
+        run: |
+          cd web
+          wasm-pack build --target web --release
+
+      - name: Prepare deployment directory
+        run: |
+          mkdir -p deploy
+          cp -r web/pkg deploy
+          cp web/index.html web/script.js web/worker.js web/signals.js web/signals-dlc.js deploy
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: deploy
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
