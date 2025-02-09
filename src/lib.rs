@@ -280,14 +280,19 @@ fn generate_frame_combinators(
     base_constant_x: f64,
     base_decider_x: f64,
     base_y: f64,
-) -> (Vec<Value>, Vec<Value>, u32) {
+    max_rows_per_group: u32,
+) -> (Vec<Value>, Vec<Value>, u32, u32) {
     let mut new_entities = Vec::new();
     let mut wires = Vec::new();
     let mut current_entity_number = base_entity_number;
     let mut first_decider = true;
+    let mut x_offset = 0.0;
     let mut y_offset = 0.0;
+    let mut row_in_this_column = 0;
+    let mut previous_first_decider: Option<u32> = None;
+
     for (i, filters) in frames_filters.iter().enumerate() {
-        let mut current_y = base_y - i as f64 - y_offset;
+        let mut current_y = base_y - row_in_this_column as f64 - y_offset;
         if occupied_y.contains(&(current_y.floor() as i32)) {
             y_offset += 2.0;
             current_y -= 2.0;
@@ -297,7 +302,7 @@ fn generate_frame_combinators(
         let constant_entity = json!({
             "entity_number": constant_num,
             "name": "constant-combinator",
-            "position": {"x": base_constant_x, "y": current_y},
+            "position": {"x": base_constant_x + x_offset, "y": current_y},
             "direction": 4,
             "control_behavior": {
                 "sections": {
@@ -312,7 +317,7 @@ fn generate_frame_combinators(
         let decider_entity = json!({
             "entity_number": decider_num,
             "name": "decider-combinator",
-            "position": {"x": base_decider_x, "y": current_y},
+            "position": {"x": base_decider_x + x_offset, "y": current_y},
             "direction": 4,
             "control_behavior": {
                 "decider_conditions": {
@@ -342,11 +347,25 @@ fn generate_frame_combinators(
             let previous_decider_id = decider_num - 2;
             wires.push(json!([previous_decider_id, 2, decider_num, 2]));
             wires.push(json!([previous_decider_id, 3, decider_num, 3]));
+        } else {
+            if let Some(prev) = previous_first_decider {
+                wires.push(json!([prev, 2, decider_num, 2]));
+                wires.push(json!([prev, 3, decider_num, 3]));
+            }
+            previous_first_decider = Some(decider_num);
         }
         first_decider = false;
         current_entity_number += 2;
+
+        row_in_this_column += 1;
+        if row_in_this_column >= max_rows_per_group {
+            row_in_this_column = 0;
+            first_decider = true;
+            y_offset = 0.0;
+            x_offset += 3.0;
+        }
     }
-    (new_entities, wires, current_entity_number)
+    (new_entities, wires, current_entity_number, previous_first_decider.unwrap_or(base_entity_number))
 }
 
 // Generate a grid of lamps.
@@ -405,6 +424,9 @@ pub fn update_full_blueprint(
     signals: Vec<Value>,
     substation_quality: &str,
 ) -> Result<Value, JsValue> {
+    if sampled_frames.is_empty() {
+        return Err(JsValue::from_str("No sampled frames"));
+    }
     let mut blueprint = json!({
         "blueprint": {
             "icons": [{
@@ -417,19 +439,19 @@ pub fn update_full_blueprint(
             "version": 562949955518464u64
         }
     });
-    if sampled_frames.is_empty() {
-        return Err(JsValue::from_str("No sampled frames"));
-    }
+
+    let total_frames = sampled_frames.len() as u32;
     let (full_width, full_height) = sampled_frames[0].dimensions();
-    let max_columns_per_group = (signals.len() as u32) / full_height;
+    let max_columns_per_group = ((signals.len() as u32) / full_height).min(full_width);
     if max_columns_per_group < 1 {
         return Err(JsValue::from_str(
             "Not enough signals for even one column of lamps!",
         ));
     }
     let num_groups = (full_width as f64 / max_columns_per_group as f64).ceil() as u32;
+    let max_rows_per_group = (total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil() as u32;
+
     let ticks_per_frame = 60.0 / fps as f64;
-    let total_frames = sampled_frames.len() as u32;
     let stop = total_frames * ticks_per_frame as u32;
     let (timer_entities, timer_wires) = generate_timer(stop);
     let mut all_entities = timer_entities;
@@ -441,7 +463,7 @@ pub fn update_full_blueprint(
         .unwrap_or(0)
         + 1;
     let (substation_entities, substation_wires, occupied_cells, next_entity_new) =
-        generate_substations(substation_quality, full_width, full_height, total_frames, next_entity);
+        generate_substations(substation_quality, full_width, full_height, max_rows_per_group, next_entity);
     next_entity = next_entity_new;
     all_entities.extend(substation_entities);
     all_wires.extend(substation_wires);
@@ -464,7 +486,8 @@ pub fn update_full_blueprint(
             group_frames_filters.push(filters);
         }
         let group_offset_x = group_index * max_columns_per_group;
-        let (group_combinators, mut group_comb_wires, new_next_entity) = generate_frame_combinators(
+        let first_connection_entity = next_entity + 1;
+        let (group_combinators, mut group_comb_wires, new_next_entity, last_connection_entity) = generate_frame_combinators(
             &group_frames_filters,
             &substation_occupied_y,
             ticks_per_frame,
@@ -472,8 +495,15 @@ pub fn update_full_blueprint(
             group_offset_x as f64 + 0.5,
             group_offset_x as f64 + 1.5,
             -3.0,
+            max_rows_per_group, // new parameter
         );
+        // If it's the first one, connect it to the timer
+        if group_index == 0 {
+            group_comb_wires.push(json!([2, 4, first_connection_entity, 2]));
+        }
         next_entity = new_next_entity;
+
+        // Generate lamps
         let group_lamp_signals: Vec<Value> = signals
             .iter()
             .cloned()
@@ -482,24 +512,18 @@ pub fn update_full_blueprint(
         let (group_lamps, group_lamp_wires, new_next_entity2) =
             generate_lamps(&group_lamp_signals, group_width, full_height, &occupied_cells, next_entity, group_offset_x as i32, 0);
         next_entity = new_next_entity2;
-        let first_decider_entity = group_combinators
-            .get(1)
-            .and_then(|e| e.get("entity_number"))
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| JsValue::from_str("Missing first decider entity"))? as u32;
+
         let first_lamp_entity = group_lamps
             .get(0)
             .and_then(|e| e.get("entity_number"))
             .and_then(|v| v.as_u64())
             .ok_or_else(|| JsValue::from_str("Missing first lamp entity"))? as u32;
-        group_comb_wires.push(json!([first_lamp_entity, 1, first_decider_entity, 3]));
-        if group_index == 0 {
-            group_comb_wires.push(json!([2, 4, first_decider_entity, 2]));
-        }
+        group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
+
         if let Some(prev) = previous_first_decider_entity {
-            group_comb_wires.push(json!([first_decider_entity, 2, prev, 2]));
+            group_comb_wires.push(json!([first_connection_entity, 2, prev, 2]));
         }
-        previous_first_decider_entity = Some(first_decider_entity);
+        previous_first_decider_entity = Some(last_connection_entity);
         all_entities.extend(group_combinators);
         all_entities.extend(group_lamps);
         all_wires.extend(group_comb_wires);
@@ -515,6 +539,7 @@ pub fn update_full_blueprint(
     }
     Ok(blueprint)
 }
+
 
 /// Exposed function for WebAssembly.
 /// 
