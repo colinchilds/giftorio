@@ -23,15 +23,13 @@ jobs:
 
       - name: Build with wasm-pack
         run: |
-          cd web
           cargo install wasm-pack
-          wasm-pack build --target web --release
+          wasm-pack build --target web --release --out-dir web/pkg
 
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
-          cp -r web/pkg deploy
-          cp web/index.html web/script.js web/worker.js web/signals.js web/signals-dlc.js deploy
+          cp -r web/* deploy/
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
