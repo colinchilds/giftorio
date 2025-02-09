@@ -18,7 +18,7 @@ use image::imageops::{FilterType};
 use image::AnimationDecoder;
 
 // Helper: encode the complete blueprint (JSON) as a Factorio blueprint string.
-fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
+pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
     let json_str = serde_json::to_string(blueprint)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
@@ -31,7 +31,7 @@ fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
 }
 
 // Load and downscale a GIF from a byte slice. Returns a vector of (frame, duration_ms)
-fn downscale_gif(gif_data: &[u8], max_size: u32) -> Result<Vec<(DynamicImage, u32)>, JsValue> {
+pub fn downscale_gif(gif_data: &[u8], max_size: u32) -> Result<Vec<(DynamicImage, u32)>, JsValue> {
     let cursor = std::io::Cursor::new(gif_data);
     let decoder = image::codecs::gif::GifDecoder::new(cursor)
         .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?;
@@ -61,15 +61,23 @@ fn downscale_gif(gif_data: &[u8], max_size: u32) -> Result<Vec<(DynamicImage, u3
     Ok(result)
 }
 
+pub fn calculate_fps(frames_with_duration: &[(DynamicImage, u32)], target_fps: u32) -> u32 {
+    let total_ms: u32 = frames_with_duration.iter().map(|(_, ms)| ms).sum();
+    let avg_frame_duration = total_ms as f64 / frames_with_duration.len() as f64;
+    let original_fps = (1000.0 / avg_frame_duration).floor() as u32;
+    let effective_fps = target_fps.min(original_fps);
+    effective_fps
+}
+
 // Sample frames evenly to reach the target FPS.
-fn sample_frames(frames: &[(DynamicImage, u32)], target_fps: u32) -> Vec<DynamicImage> {
+pub fn sample_frames(frames: &[(DynamicImage, u32)], fps: u32) -> Vec<DynamicImage> {
     let total_ms: u32 = frames.iter().map(|(_, ms)| ms).sum();
     let total_frames = frames.len();
     let avg_frame_duration = total_ms as f64 / total_frames as f64;
-    let target_total_frames = ((total_ms as f64 / 1000.0) * target_fps as f64).round() as u32;
+    let target_total_frames = ((total_ms as f64 / 1000.0) * fps as f64).round() as u32;
     let mut sampled = Vec::new();
     for i in 0..target_total_frames {
-        let target_time = i as f64 * (1000.0 / target_fps as f64);
+        let target_time = i as f64 * (1000.0 / fps as f64);
         let mut orig_index = (target_time / avg_frame_duration).round() as usize;
         if orig_index >= total_frames {
             orig_index = total_frames - 1;
@@ -391,8 +399,8 @@ fn generate_lamps(
 }
 
 // Build the complete blueprint JSON.
-fn update_full_blueprint(
-    target_fps: u32,
+pub fn update_full_blueprint(
+    fps: u32,
     sampled_frames: Vec<DynamicImage>,
     signals: Vec<Value>,
     substation_quality: &str,
@@ -420,7 +428,7 @@ fn update_full_blueprint(
         ));
     }
     let num_groups = (full_width as f64 / max_columns_per_group as f64).ceil() as u32;
-    let ticks_per_frame = 60.0 / target_fps as f64;
+    let ticks_per_frame = 60.0 / fps as f64;
     let total_frames = sampled_frames.len() as u32;
     let stop = total_frames * ticks_per_frame as u32;
     let (timer_entities, timer_wires) = generate_timer(stop);
@@ -531,13 +539,13 @@ pub fn run_blueprint(
         .map_err(|e| JsValue::from_str(&format!("Failed to parse signals JSON: {}", e)))?;
     // Downscale the input GIF.
     let frames_with_duration = downscale_gif(gif_data, max_size)?;
-    // Sample the frames to achieve the target FPS.
-    let sampled_frames = sample_frames(&frames_with_duration, target_fps);
+    let fps = calculate_fps(&frames_with_duration, target_fps);
+    let sampled_frames = sample_frames(&frames_with_duration, fps);
     if sampled_frames.is_empty() {
         return Err(JsValue::from_str("No frames sampled!"));
     }
     // Build the complete blueprint.
-    let blueprint_json = update_full_blueprint(target_fps, sampled_frames, signals, substation_quality)?;
+    let blueprint_json = update_full_blueprint(fps, sampled_frames, signals, substation_quality)?;
     // Encode the blueprint as a Factorio blueprint string.
     let blueprint_str = encode_blueprint(&blueprint_json)?;
     Ok(blueprint_str)
