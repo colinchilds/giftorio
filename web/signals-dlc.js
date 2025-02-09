@@ -340,7 +340,7 @@ export let signals_dlc = [{"name":"wooden-chest"},
 {"type":"virtual","name":"signal-Q"},
 {"type":"virtual","name":"signal-R"},
 {"type":"virtual","name":"signal-S"},
-{"type":"virtual","name":"signal-T"},
+// {"type":"virtual","name":"signal-T"}, removed to not conflict with our timer signal
 {"type":"virtual","name":"signal-U"},
 {"type":"virtual","name":"signal-V"},
 {"type":"virtual","name":"signal-W"},
