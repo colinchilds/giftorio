@@ -1,5 +1,4 @@
 use wasm_bindgen::prelude::*;
-//use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -7,14 +6,9 @@ use base64;
 use std::io::Write;
 use std::collections::{HashMap, HashSet};
 
-// Old import that causes the error:
-// use image::{DynamicImage, ImageFormat, GenericImageView, imageops::resize, FilterType};
-
 // Updated imports:
 use image::{DynamicImage, GenericImageView};
-//use image::{DynamicImage, ImageFormat, GenericImageView};
 use image::imageops::{FilterType};
-//use image::imageops::{resize, FilterType};
 use image::AnimationDecoder;
 
 // Helper: encode the complete blueprint (JSON) as a Factorio blueprint string.
@@ -475,13 +469,14 @@ pub fn update_full_blueprint(
         let group_right = ((group_index + 1) * max_columns_per_group).min(full_width);
         let group_width = group_right - group_left;
         let mut group_frames_filters = Vec::new();
+        let signals_subset: Vec<Value> = signals
+            .iter()
+            .cloned()
+            .take((group_width * full_height) as usize)
+            .collect();
+
         for frame in &sampled_frames {
             let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-            let signals_subset: Vec<Value> = signals
-                .iter()
-                .cloned()
-                .take((group_width * full_height) as usize)
-                .collect();
             let filters = frame_to_filters(&cropped, &signals_subset)?;
             group_frames_filters.push(filters);
         }
@@ -504,20 +499,10 @@ pub fn update_full_blueprint(
         next_entity = new_next_entity;
 
         // Generate lamps
-        let group_lamp_signals: Vec<Value> = signals
-            .iter()
-            .cloned()
-            .take((group_width * full_height) as usize)
-            .collect();
+        let first_lamp_entity = next_entity.clone();
         let (group_lamps, group_lamp_wires, new_next_entity2) =
-            generate_lamps(&group_lamp_signals, group_width, full_height, &occupied_cells, next_entity, group_offset_x as i32, 0);
-        next_entity = new_next_entity2;
+            generate_lamps(&signals_subset, group_width, full_height, &occupied_cells, next_entity, group_offset_x as i32, 0);
 
-        let first_lamp_entity = group_lamps
-            .get(0)
-            .and_then(|e| e.get("entity_number"))
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| JsValue::from_str("Missing first lamp entity"))? as u32;
         group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
 
         if let Some(prev) = previous_first_decider_entity {
