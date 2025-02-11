@@ -494,12 +494,14 @@ pub fn update_full_blueprint(
     let total_frames = sampled_frames.len() as u32;
     let (full_width, full_height) = sampled_frames[0].dimensions();
     let max_columns_per_group = ((signals.len() as u32) / full_height).min(full_width);
+    let num_groups = (full_width as f64 / max_columns_per_group as f64).ceil() as u32;
+    // re-calculate and try to spread them out evenly
+    let max_columns_per_group = full_width / num_groups;
     if max_columns_per_group < 1 {
         return Err(JsValue::from_str(
             "Not enough signals for even one column of lamps!",
         ));
     }
-    let num_groups = (full_width as f64 / max_columns_per_group as f64).ceil() as u32;
     let max_rows_per_group =
         (total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil() as u32;
 
@@ -565,7 +567,7 @@ pub fn update_full_blueprint(
 
         // Generate lamps
         let first_lamp_entity = next_entity.clone();
-        let (group_lamps, group_lamp_wires, new_next_entity2) = generate_lamps(
+        let (group_lamps, group_lamp_wires, new_next_entity) = generate_lamps(
             &signals_subset,
             group_width,
             full_height,
@@ -574,6 +576,7 @@ pub fn update_full_blueprint(
             group_offset_x as i32,
             0,
         );
+        next_entity = new_next_entity;
 
         group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
 
