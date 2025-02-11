@@ -3,24 +3,24 @@
 export function set_progress_callback(callback: Function): void;
 /**
  * Exposed function for WebAssembly.
- * 
+ *
  * Parameters:
  * • gif_data: A byte array (e.g. a Uint8Array from JavaScript) containing the GIF.
  * • signals_json: A JSON string containing the available signals.
  * • target_fps: The desired frames per second.
  * • max_size: Maximum dimension (width/height) for downscaling.
  * • substation_quality: The quality of substations to use.
- * 
+ *
  * Returns a Factorio blueprint string.
  */
-export function run_blueprint(gif_data: Uint8Array, signals_json: string, target_fps: number, max_size: number, substation_quality: string): string;
+export function run_blueprint(gif_data: Uint8Array, use_dlc: boolean, signals_json: string, target_fps: number, max_size: number, substation_quality: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly set_progress_callback: (a: any) => void;
-  readonly run_blueprint: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+  readonly run_blueprint: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
   readonly __wbindgen_export_2: WebAssembly.Table;

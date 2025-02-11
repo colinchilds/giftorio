@@ -121,8 +121,12 @@ fn rgb_to_int(r: u8, g: u8, b: u8) -> u32 {
     ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
 }
 
-// Given a frame and a subset of available signals, convert each pixel to a filter JSON object.
-fn frame_to_filters(frame: &DynamicImage, signals_subset: &[Value]) -> Result<Vec<Value>, JsValue> {
+// Given a frame and a subset of available signals, convert each pixel to a filter JSON object
+// and add it to a constant combinator section.
+fn frame_to_sections(
+    frame: &DynamicImage,
+    signals_subset: &[Value],
+) -> Result<Vec<Value>, JsValue> {
     let (width, height) = frame.dimensions();
     let num_pixels = (width * height) as usize;
     if num_pixels > signals_subset.len() {
@@ -136,6 +140,9 @@ fn frame_to_filters(frame: &DynamicImage, signals_subset: &[Value]) -> Result<Ve
     let rgb_image = frame.to_rgb8();
     let pixels = rgb_image.into_raw();
     let mut filters = Vec::new();
+    let mut sections = Vec::new();
+    let mut index = 1;
+    let mut section_index = 1;
     for (i, chunk) in pixels.chunks(3).enumerate() {
         if chunk.len() < 3 {
             continue;
@@ -146,7 +153,7 @@ fn frame_to_filters(frame: &DynamicImage, signals_subset: &[Value]) -> Result<Ve
         let value = rgb_to_int(r, g, b);
         // Build a filter entry.
         let mut filter = serde_json::Map::new();
-        filter.insert("index".to_string(), json!(i + 1));
+        filter.insert("index".to_string(), json!(index));
         filter.insert("comparator".to_string(), json!("="));
         filter.insert("count".to_string(), json!(value));
         filter.insert("quality".to_string(), json!("normal"));
@@ -157,8 +164,24 @@ fn frame_to_filters(frame: &DynamicImage, signals_subset: &[Value]) -> Result<Ve
             }
         }
         filters.push(Value::Object(filter));
+        if index == 1000 {
+            sections.push(json!({
+                "index": section_index,
+                "filters": filters
+            }));
+            index = 1;
+            section_index += 1;
+            filters = Vec::new();
+        } else {
+            index += 1;
+        }
     }
-    Ok(filters)
+    sections.push(json!({
+        "index": section_index,
+        "filters": filters
+    }));
+
+    Ok(sections)
 }
 
 // Generate the timer combinators and associated wires.
@@ -317,7 +340,7 @@ fn generate_substations(
 
 // Generate combinator pairs for each frame.
 fn generate_frame_combinators(
-    frames_filters: &Vec<Vec<Value>>,
+    frame_sections: &Vec<Vec<Value>>,
     occupied_y: &HashSet<i32>,
     ticks_per_frame: f64,
     base_entity_number: u32,
@@ -335,7 +358,7 @@ fn generate_frame_combinators(
     let mut row_in_this_column = 0;
     let mut previous_first_decider: Option<u32> = None;
 
-    for (i, filters) in frames_filters.iter().enumerate() {
+    for (i, sections) in frame_sections.iter().enumerate() {
         let mut current_y = base_y - row_in_this_column as f64 - y_offset;
         if occupied_y.contains(&(current_y.floor() as i32)) {
             y_offset += 2.0;
@@ -350,9 +373,7 @@ fn generate_frame_combinators(
             "direction": 4,
             "control_behavior": {
                 "sections": {
-                    "sections": [
-                        {"index": 1, "filters": filters}
-                    ]
+                    "sections": sections
                 }
             }
         });
@@ -470,10 +491,13 @@ fn generate_lamps(
 pub fn update_full_blueprint(
     fps: u32,
     sampled_frames: Vec<DynamicImage>,
+    use_dlc: bool,
     signals: Vec<Value>,
     substation_quality: &str,
 ) -> Result<Value, JsValue> {
     report_progress(0, "Starting blueprint update");
+
+    let signals: Vec<Value> = get_signals_with_quality(use_dlc, signals);
 
     if sampled_frames.is_empty() {
         return Err(JsValue::from_str("No sampled frames"));
@@ -534,23 +558,23 @@ pub fn update_full_blueprint(
         let group_left = group_index * max_columns_per_group;
         let group_right = ((group_index + 1) * max_columns_per_group).min(full_width);
         let group_width = group_right - group_left;
-        let mut group_frames_filters = Vec::new();
         let signals_subset: Vec<Value> = signals
             .iter()
             .cloned()
             .take((group_width * full_height) as usize)
             .collect();
 
+        let mut group_frames_sections = Vec::new();
         for frame in &sampled_frames {
             let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-            let filters = frame_to_filters(&cropped, &signals_subset)?;
-            group_frames_filters.push(filters);
+            let sections = frame_to_sections(&cropped, &signals_subset)?;
+            group_frames_sections.push(sections);
         }
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = next_entity + 1;
         let (group_combinators, mut group_comb_wires, new_next_entity, last_connection_entity) =
             generate_frame_combinators(
-                &group_frames_filters,
+                &group_frames_sections,
                 &substation_occupied_y,
                 ticks_per_frame,
                 next_entity,
@@ -606,20 +630,47 @@ pub fn update_full_blueprint(
     Ok(blueprint)
 }
 
+fn get_signals_with_quality(use_dlc: bool, signals: Vec<Value>) -> Vec<Value> {
+    signals
+        .iter()
+        .flat_map(|signal| {
+            let mut signals = Vec::new();
+            let qualities = if use_dlc {
+                vec![
+                    "normal",
+                    "uncommon",
+                    "rare",
+                    "epic",
+                    "legendary",
+                    "quality-unknown",
+                ]
+            } else {
+                vec!["normal", "quality-unknown"]
+            };
+            for quality in qualities.iter() {
+                let mut signal = signal.clone();
+                signal["quality"] = json!(quality);
+                signals.push(signal.clone());
+            }
+            signals
+        })
+        .collect()
+}
 
 /// Exposed function for WebAssembly.
-/// 
+///
 /// Parameters:
 /// • gif_data: A byte array (e.g. a Uint8Array from JavaScript) containing the GIF.
 /// • signals_json: A JSON string containing the available signals.
 /// • target_fps: The desired frames per second.
 /// • max_size: Maximum dimension (width/height) for downscaling.
 /// • substation_quality: The quality of substations to use.
-/// 
+///
 /// Returns a Factorio blueprint string.
 #[wasm_bindgen]
 pub fn run_blueprint(
     gif_data: &[u8],
+    use_dlc: bool,
     signals_json: &str,
     target_fps: u32,
     max_size: u32,
@@ -636,7 +687,8 @@ pub fn run_blueprint(
         return Err(JsValue::from_str("No frames sampled!"));
     }
     // Build the complete blueprint.
-    let blueprint_json = update_full_blueprint(fps, sampled_frames, signals, substation_quality)?;
+    let blueprint_json =
+        update_full_blueprint(fps, sampled_frames, use_dlc, signals, substation_quality)?;
     // Encode the blueprint as a Factorio blueprint string.
     let blueprint_str = encode_blueprint(&blueprint_json)?;
     Ok(blueprint_str)

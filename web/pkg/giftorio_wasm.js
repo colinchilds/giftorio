@@ -119,13 +119,14 @@ function takeFromExternrefTable0(idx) {
  *
  * Returns a Factorio blueprint string.
  * @param {Uint8Array} gif_data
+ * @param {boolean} use_dlc
  * @param {string} signals_json
  * @param {number} target_fps
  * @param {number} max_size
  * @param {string} substation_quality
  * @returns {string}
  */
-export function run_blueprint(gif_data, signals_json, target_fps, max_size, substation_quality) {
+export function run_blueprint(gif_data, use_dlc, signals_json, target_fps, max_size, substation_quality) {
     let deferred5_0;
     let deferred5_1;
     try {
@@ -135,7 +136,7 @@ export function run_blueprint(gif_data, signals_json, target_fps, max_size, subs
         const len1 = WASM_VECTOR_LEN;
         const ptr2 = passStringToWasm0(substation_quality, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len2 = WASM_VECTOR_LEN;
-        const ret = wasm.run_blueprint(ptr0, len0, ptr1, len1, target_fps, max_size, ptr2, len2);
+        const ret = wasm.run_blueprint(ptr0, len0, use_dlc, ptr1, len1, target_fps, max_size, ptr2, len2);
         var ptr4 = ret[0];
         var len4 = ret[1];
         if (ret[3]) {

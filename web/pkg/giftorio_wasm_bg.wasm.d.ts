@@ -2,7 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const set_progress_callback: (a: any) => void;
-export const run_blueprint: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+export const run_blueprint: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_export_2: WebAssembly.Table;
