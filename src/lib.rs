@@ -1,26 +1,61 @@
-use wasm_bindgen::prelude::*;
-use serde_json::{json, Value};
+use base64;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
-use base64;
-use std::io::Write;
+use js_sys::Function;
+use serde_json::{json, Value};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
+use std::thread_local;
+use wasm_bindgen::prelude::*;
 
-// Updated imports:
-use image::{DynamicImage, GenericImageView};
-use image::imageops::{FilterType};
+use image::imageops::FilterType;
 use image::AnimationDecoder;
+use image::{DynamicImage, GenericImageView};
+
+thread_local! {
+    static PROGRESS_CALLBACK: RefCell<Option<Function>> = RefCell::new(None);
+}
+
+#[wasm_bindgen]
+pub fn set_progress_callback(callback: Function) {
+    PROGRESS_CALLBACK.with(|progress| {
+        *progress.borrow_mut() = Some(callback);
+    });
+}
+
+fn report_progress(percentage: u32, status: &str) {
+    PROGRESS_CALLBACK.with(|progress| {
+        if let Some(ref callback) = *progress.borrow() {
+            // Call the callback with (percentage, status)
+            let _ = callback.call2(
+                &JsValue::NULL,
+                &JsValue::from(percentage),
+                &JsValue::from(status),
+            );
+        }
+    });
+}
 
 // Helper: encode the complete blueprint (JSON) as a Factorio blueprint string.
 pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
+    report_progress(80, "Encoding blueprint...");
     let json_str = serde_json::to_string(blueprint)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
+
+    report_progress(85, "Compressing blueprint...");
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-    encoder.write_all(json_str.as_bytes())
+    encoder
+        .write_all(json_str.as_bytes())
         .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
-    let compressed = encoder.finish()
+
+    let compressed = encoder
+        .finish()
         .map_err(|e| JsValue::from_str(&format!("Compression finish error: {}", e)))?;
+
     let b64_encoded = base64::encode(&compressed);
+
+    report_progress(100, "Blueprint generation complete. Loading to browser...");
     Ok(format!("0{}", b64_encoded))
 }
 
@@ -93,7 +128,8 @@ fn frame_to_filters(frame: &DynamicImage, signals_subset: &[Value]) -> Result<Ve
     if num_pixels > signals_subset.len() {
         return Err(JsValue::from_str(&format!(
             "Frame pixel count ({}) exceeds available signals ({}).",
-            num_pixels, signals_subset.len()
+            num_pixels,
+            signals_subset.len()
         )));
     }
     // Convert the frame to RGB8 for consistent pixel data.
@@ -225,15 +261,19 @@ fn generate_substations(
     let mut current_entity = start_entity_number;
     let half_coverage = ((coverage as f64) - 2.0) / 2.0;
     // Compute how many substations are needed above the grid.
-    let mut frame_coverage_count = (((frame_count as f64) - half_coverage) / (coverage as f64)).ceil() as u32;
+    let mut frame_coverage_count =
+        (((frame_count as f64) - half_coverage) / (coverage as f64)).ceil() as u32;
     while ((frame_count as f64) - half_coverage + (frame_coverage_count as f64 * 2.0))
         > (frame_coverage_count as f64 * coverage as f64)
     {
         frame_coverage_count += 1;
     }
-    let num_substations_width = (((lamp_width as f64) - half_coverage) / (coverage as f64)).ceil() as u32 + 1;
-    let num_substations_height =
-        (((lamp_height as f64) - half_coverage) / (coverage as f64)).ceil() as u32 + 1 + frame_coverage_count;
+    let num_substations_width =
+        (((lamp_width as f64) - half_coverage) / (coverage as f64)).ceil() as u32 + 1;
+    let num_substations_height = (((lamp_height as f64) - half_coverage) / (coverage as f64)).ceil()
+        as u32
+        + 1
+        + frame_coverage_count;
     let start_x = -1;
     let start_y = -1 - (frame_coverage_count as i32 * coverage as i32);
     for i in 0..num_substations_height {
@@ -254,7 +294,12 @@ fn generate_substations(
             occupied_cells.insert((x, y));
             substation_entities.push(substation);
             if i > 0 {
-                substation_wires.push(json!([current_entity, 5, current_entity - num_substations_width, 5]));
+                substation_wires.push(json!([
+                    current_entity,
+                    5,
+                    current_entity - num_substations_width,
+                    5
+                ]));
             }
             if j > 0 {
                 substation_wires.push(json!([current_entity, 5, current_entity - 1, 5]));
@@ -262,7 +307,12 @@ fn generate_substations(
             current_entity += 1;
         }
     }
-    (substation_entities, substation_wires, occupied_cells, current_entity)
+    (
+        substation_entities,
+        substation_wires,
+        occupied_cells,
+        current_entity,
+    )
 }
 
 // Generate combinator pairs for each frame.
@@ -359,7 +409,12 @@ fn generate_frame_combinators(
             x_offset += 3.0;
         }
     }
-    (new_entities, wires, current_entity_number, previous_first_decider.unwrap_or(base_entity_number))
+    (
+        new_entities,
+        wires,
+        current_entity_number,
+        previous_first_decider.unwrap_or(base_entity_number),
+    )
 }
 
 // Generate a grid of lamps.
@@ -418,6 +473,8 @@ pub fn update_full_blueprint(
     signals: Vec<Value>,
     substation_quality: &str,
 ) -> Result<Value, JsValue> {
+    report_progress(0, "Starting blueprint update");
+
     if sampled_frames.is_empty() {
         return Err(JsValue::from_str("No sampled frames"));
     }
@@ -443,7 +500,8 @@ pub fn update_full_blueprint(
         ));
     }
     let num_groups = (full_width as f64 / max_columns_per_group as f64).ceil() as u32;
-    let max_rows_per_group = (total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil() as u32;
+    let max_rows_per_group =
+        (total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil() as u32;
 
     let ticks_per_frame = 60.0 / fps as f64;
     let stop = total_frames * ticks_per_frame as u32;
@@ -456,13 +514,19 @@ pub fn update_full_blueprint(
         .max()
         .unwrap_or(0)
         + 1;
+    report_progress(10, "Generating power grid");
     let (substation_entities, substation_wires, occupied_cells, next_entity_new) =
-        generate_substations(substation_quality, full_width, full_height, max_rows_per_group, next_entity);
+        generate_substations(
+            substation_quality,
+            full_width,
+            full_height,
+            max_rows_per_group,
+            next_entity,
+        );
     next_entity = next_entity_new;
     all_entities.extend(substation_entities);
     all_wires.extend(substation_wires);
-    let substation_occupied_y: HashSet<i32> =
-        occupied_cells.iter().map(|(_, y)| *y).collect();
+    let substation_occupied_y: HashSet<i32> = occupied_cells.iter().map(|(_, y)| *y).collect();
     let mut previous_first_decider_entity: Option<u32> = None;
     for group_index in 0..num_groups {
         let group_left = group_index * max_columns_per_group;
@@ -482,16 +546,17 @@ pub fn update_full_blueprint(
         }
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = next_entity + 1;
-        let (group_combinators, mut group_comb_wires, new_next_entity, last_connection_entity) = generate_frame_combinators(
-            &group_frames_filters,
-            &substation_occupied_y,
-            ticks_per_frame,
-            next_entity,
-            group_offset_x as f64 + 0.5,
-            group_offset_x as f64 + 1.5,
-            -3.0,
-            max_rows_per_group, // new parameter
-        );
+        let (group_combinators, mut group_comb_wires, new_next_entity, last_connection_entity) =
+            generate_frame_combinators(
+                &group_frames_filters,
+                &substation_occupied_y,
+                ticks_per_frame,
+                next_entity,
+                group_offset_x as f64 + 0.5,
+                group_offset_x as f64 + 1.5,
+                -3.0,
+                max_rows_per_group, // new parameter
+            );
         // If it's the first one, connect it to the timer
         if group_index == 0 {
             group_comb_wires.push(json!([2, 4, first_connection_entity, 2]));
@@ -500,8 +565,15 @@ pub fn update_full_blueprint(
 
         // Generate lamps
         let first_lamp_entity = next_entity.clone();
-        let (group_lamps, group_lamp_wires, new_next_entity2) =
-            generate_lamps(&signals_subset, group_width, full_height, &occupied_cells, next_entity, group_offset_x as i32, 0);
+        let (group_lamps, group_lamp_wires, new_next_entity2) = generate_lamps(
+            &signals_subset,
+            group_width,
+            full_height,
+            &occupied_cells,
+            next_entity,
+            group_offset_x as i32,
+            0,
+        );
 
         group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
 
@@ -513,6 +585,12 @@ pub fn update_full_blueprint(
         all_entities.extend(group_lamps);
         all_wires.extend(group_comb_wires);
         all_wires.extend(group_lamp_wires);
+
+        let percent = 20 + ((group_index + 1) * 50 / num_groups);
+        report_progress(
+            percent,
+            &format!("Processed chunk {}/{}", group_index + 1, num_groups),
+        );
     }
     if let Some(bp) = blueprint.get_mut("blueprint") {
         bp.as_object_mut()

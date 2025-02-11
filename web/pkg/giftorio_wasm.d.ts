@@ -1,5 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
+export function set_progress_callback(callback: Function): void;
 /**
  * Exposed function for WebAssembly.
  * 
@@ -18,8 +19,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly set_progress_callback: (a: any) => void;
   readonly run_blueprint: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-  readonly __wbindgen_export_0: WebAssembly.Table;
+  readonly __wbindgen_exn_store: (a: number) => void;
+  readonly __externref_table_alloc: () => number;
+  readonly __wbindgen_export_2: WebAssembly.Table;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __externref_table_dealloc: (a: number) => void;

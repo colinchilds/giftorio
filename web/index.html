@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module" src="./script.js"></script>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen space-y-4">
     <form id="blueprint_form" class="bg-white p-6 rounded shadow-md w-full max-w-md">
         <div class="mb-4">
             <label class="block text-gray-700 text-sm font-bold mb-2" for="fileInput">Select File</label>
@@ -77,14 +77,22 @@
         </div>
     </form>
 
-    <div id="response" class="bg-white p-6 rounded shadow-md w-full max-w-md hidden">
-        <div id="responseText" class="bg-gray-50 p-4 border rounded overflow-auto max-h-64 mb-2"></div>
-        <div class="flex justify-between items-center">
+    <div id="blueprintStatus" class="bg-white p-6 rounded shadow-md w-full max-w-md hidden">
+        <h2 id="blueprintTitle" class="text-xl font-bold mb-2"></h2>
+        <div id="progressContainer">
+            <div class="w-full bg-gray-200 rounded-full h-4 mb-2">
+                <div id="progressBar" class="bg-blue-500 h-4 rounded-full" style="width: 0%"></div>
+            </div>
+            <p id="progressStatus" class="text-gray-700">Starting...</p>
+        </div>
+        <div id="blueprintResult" class="hidden">
+            <div id="responseText" class="bg-gray-50 p-4 border rounded overflow-auto max-h-64 mb-2"></div>
             <button id="copyButton" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded">
                 Copy
             </button>
         </div>
     </div>
+
     <script>
         const toggleInput = document.getElementById('toggle');
         const toggleBg = document.getElementById('togglebg');
@@ -109,10 +117,10 @@
           const responseText = document.getElementById('responseText').innerText;
           navigator.clipboard.writeText(responseText)
             .then(() => {
-              // ignorance is bliss
+              console.log('Blueprint copied to clipboard!');
             })
             .catch((err) => {
-              console.error('Failed to copy: ', err);
+              console.error('Failed to copy blueprint:', err);
             });
         });
     </script>

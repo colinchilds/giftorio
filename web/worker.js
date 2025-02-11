@@ -1,8 +1,13 @@
-import init, { run_blueprint } from "./pkg/giftorio_wasm.js";
+import init, { run_blueprint, set_progress_callback } from "./pkg/giftorio_wasm.js";
 import { signals as signals_base } from "./signals.js";
 
 async function run() {
   await init();
+
+  set_progress_callback((percentage, status) => {
+    // Post progress updates to the main thread.
+    postMessage({ progress: { percentage, status } });
+  });
 
   addEventListener("message", async (message) => {
     const { gifData, targetFps, maxSize, useDlc, substationQuality } = message.data;
