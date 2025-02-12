@@ -1,3 +1,5 @@
 .venv/
 .idea/
 /target
+dist
+node_modules

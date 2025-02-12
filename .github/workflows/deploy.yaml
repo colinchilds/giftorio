@@ -24,17 +24,17 @@ jobs:
       - name: Build with wasm-pack
         run: |
           cargo install wasm-pack
-          wasm-pack build --target web --release --out-dir web/pkg
+          wasm-pack build --target web --release
 
-      - name: Prepare deployment directory
+      - name: Yarn
         run: |
-          mkdir -p deploy
-          cp -r web/* deploy/
+          yarn
+          yarn build
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: deploy
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment

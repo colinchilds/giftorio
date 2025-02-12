@@ -1,4 +1,4 @@
-import init, { run_blueprint, set_progress_callback } from "./pkg/giftorio_wasm.js";
+import init, { run_blueprint, set_progress_callback } from "../pkg/giftorio_wasm.js";
 import { signals as signals_base } from "./signals.js";
 import { signals_dlc } from "./signals-dlc.js";
 
