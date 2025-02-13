@@ -1,11 +1,13 @@
 class BackgroundVideoManager {
-    constructor(cycleInterval = 15000) { // Default 15 second interval
+    constructor(cycleInterval = 10000) {
         this.videos = Array.from(document.querySelectorAll('.bg-video'));
-        this.currentIndex = 0;
+        // Start with a random video
+        this.currentIndex = Math.floor(Math.random() * this.videos.length);
         this.cycleInterval = cycleInterval;
         
-        // Start cycling if there are multiple videos
+        // Switch to random initial video and start cycling if multiple videos exist
         if (this.videos.length > 1) {
+            this.switchToVideo(this.currentIndex);
             this.startCycle();
         }
     }
