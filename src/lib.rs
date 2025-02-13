@@ -270,6 +270,11 @@ fn generate_substations(
     frame_count: u32,
     start_entity_number: u32,
 ) -> (Vec<Value>, Vec<Value>, HashSet<(i32, i32)>, u32) {
+    // If substation_quality is "none", don't generate any substations
+    if substation_quality == "none" {
+        return (Vec::new(), Vec::new(), HashSet::new(), start_entity_number);
+    }
+
     let coverage = match substation_quality {
         "normal" => 18,
         "uncommon" => 20,

@@ -27,6 +27,7 @@ async function run() {
       postMessage({ blueprint: blueprint });
     } catch (e) {
       console.error("Error generating blueprint:", e);
+      postMessage({ error: e.toString() });
     }
   });
 }

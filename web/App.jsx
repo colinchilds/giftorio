@@ -5,7 +5,7 @@ import bgUrl from './assets/img/background.png';
 const INITIAL_VALUES = {
   framerate: 15,
   maxSize: 50,
-  substationQualities: ['normal', 'uncommon', 'rare', 'epic', 'legendary']
+  substationQualities: ['none', 'normal', 'uncommon', 'rare', 'epic', 'legendary']
 };
 
 function App() {
@@ -14,6 +14,7 @@ function App() {
   const [isDlc, setIsDlc] = createSignal(false);
   const [progress, setProgress] = createSignal({ percentage: 0, status: 'Starting...' });
   const [blueprintData, setBlueprintData] = createSignal({ title: '', content: '' });
+  const [toast, setToast] = createSignal({ show: false, message: '', isError: false });
   
   // Worker setup
   const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
@@ -35,15 +36,31 @@ function App() {
       formRefs.blueprintResult.classList.remove("hidden");
       formRefs.responseText.innerHTML = blueprint;
       formRefs.submitButton.disabled = false;
+    } else if (event.data.error) {
+      setToast({ show: true, message: event.data.error, isError: true });
+      setTimeout(() => setToast({ show: false, message: '', isError: false }), 3000);
+      setIsGenerating(false);
+      formRefs.submitButton.disabled = false;
     }
   };
 
   // Event handlers
   const toggleChange = () => {
     const isChecked = formRefs.toggleInput.checked;
+    const currentQuality = formRefs.substationQuality.value;
+    
     formRefs.toggleLabel.textContent = isChecked ? 'Yes' : 'No';
     formRefs.toggleBg.classList.toggle('bg-dark-gray-500', isChecked);
     formRefs.toggleBg.classList.toggle('bg-light-gray-500', !isChecked);
+    
+    // Store the current quality before state update
+    if (!isChecked && ['uncommon', 'rare', 'epic', 'legendary'].includes(currentQuality)) {
+      // Set timeout to run after the reactive updates
+      setTimeout(() => {
+        formRefs.substationQuality.value = 'normal';
+      }, 0);
+    }
+    
     setIsDlc(isChecked);
     formRefs.dot.style.transform = isChecked ? 'translateX(100%)' : 'translateX(0)';
   };
@@ -51,9 +68,12 @@ function App() {
   const toClipboard = async () => {
     try {
       await navigator.clipboard.writeText(formRefs.responseText.innerText);
-      console.log('Blueprint copied to clipboard!');
+      setToast({ show: true, message: 'Copied to clipboard!', isError: false });
+      setTimeout(() => setToast({ show: false, message: '', isError: false }), 2000);
     } catch (err) {
       console.error('Failed to copy blueprint:', err);
+      setToast({ show: true, message: 'Failed to copy to clipboard', isError: true });
+      setTimeout(() => setToast({ show: false, message: '', isError: false }), 2000);
     }
   };
 
@@ -74,10 +94,26 @@ function App() {
       targetFps: formRefs.framerate.value,
       maxSize: formRefs.maxsize.value,
       useDlc: isDlc(),
-      substationQuality: formRefs.substationQuality?.value
+      substationQuality: formRefs.substationQuality?.value || 'normal'
     };
 
-    if (formData.file?.type === "image/gif") {
+    if (!formData.file) {
+      setToast({ show: true, message: 'Please select a file', isError: true });
+      setTimeout(() => setToast({ show: false, message: '', isError: false }), 3000);
+      setIsGenerating(false);
+      formRefs.submitButton.disabled = false;
+      return;
+    }
+
+    if (formData.file.type !== "image/gif") {
+      setToast({ show: true, message: 'Please select a GIF file', isError: true });
+      setTimeout(() => setToast({ show: false, message: '', isError: false }), 3000);
+      setIsGenerating(false);
+      formRefs.submitButton.disabled = false;
+      return;
+    }
+
+    try {
       const gifData = new Uint8Array(await formData.file.arrayBuffer());
       worker.postMessage({
         gifData,
@@ -86,11 +122,29 @@ function App() {
         useDlc: formData.useDlc,
         substationQuality: formData.substationQuality
       });
+    } catch (err) {
+      console.error('Failed to process file:', err);
+      setToast({ show: true, message: 'Failed to process file', isError: true });
+      setTimeout(() => setToast({ show: false, message: '', isError: false }), 3000);
+      setIsGenerating(false);
+      formRefs.submitButton.disabled = false;
     }
   };
 
   return (
     <div style={{"background-image": `url(${bgUrl})`}} class="bg-cover bg-gray-500 flex items-center justify-center min-h-screen">
+      <div 
+        classList={{
+          "opacity-0": !toast().show,
+          "opacity-100": toast().show,
+          "bg-green-500": !toast().isError,
+          "bg-red-500": toast().isError
+        }}
+        class="fixed top-4 right-4 text-white px-4 py-2 rounded shadow-lg transition-opacity duration-300"
+      >
+        {toast().message}
+      </div>
+
       <div classList={{hidden: isGenerating()}} class="panel">
         <h2 class="text-tan-500">Convert GIF to Blueprint</h2>
         <form onSubmit={handleSubmit} class="panel-inset bg-gray-500 p-6 rounded shadow-md w-full max-w-md">
@@ -147,14 +201,25 @@ function App() {
           </div>
 
           {/* Substation Quality Select */}
-          <div id="quality" class="mb-4" classList={{hidden: !isDlc()}}>
+          <div class="mb-4">
             <label class="block text-tan-500 text-sm font-bold mb-2" for="substationQuality">Substation Quality</label>
-            <select ref={el => formRefs.substationQuality = el} id="substationQuality" name="substationQuality" class="bg-very-light-gray-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring">
+            <select 
+              ref={el => formRefs.substationQuality = el}
+              id="substationQuality" 
+              name="substationQuality" 
+              class="bg-very-light-gray-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              defaultValue="normal"
+            >
               <option value="normal">Normal</option>
-              <option value="uncommon">Uncommon</option>
-              <option value="rare">Rare</option>
-              <option value="epic">Epic</option>
-              <option value="legendary">Legendary</option>
+              {isDlc() && (
+                <>
+                  <option value="uncommon">Uncommon</option>
+                  <option value="rare">Rare</option>
+                  <option value="epic">Epic</option>
+                  <option value="legendary">Legendary</option>
+                </>
+              )}
+              <option value="none">None</option>
             </select>
           </div>
 
