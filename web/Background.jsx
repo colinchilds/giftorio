@@ -1,9 +1,25 @@
 import { onMount, For, createSignal } from "solid-js";
+import nyanMp4 from "./assets/img/nyan.mp4";
+import nyanWebm from "./assets/img/nyan.webm";
+import rickMp4 from "./assets/img/rick.mp4";
+import rickWebm from "./assets/img/rick.webm";
+import gumpMp4 from "./assets/img/gump.mp4";
+import gumpWebm from "./assets/img/gump.webm";
+
 
 const VIDS = [
-  "/web/assets/img/nyan",
-  "/web/assets/img/rick",
-  "/web/assets/img/gump",
+  {
+    mp4: nyanMp4,
+    webm: nyanWebm,
+  },
+  {
+    mp4: rickMp4,
+    webm: rickWebm,
+  },
+  {
+    mp4: gumpMp4,
+    webm: gumpWebm,
+  },
 ];
 
 function Background(props) {
@@ -29,8 +45,8 @@ function Background(props) {
             loop
             playsinline
           >
-            <source src={`${vid}.mp4`} type="video/mp4" />
-            <source src={`${vid}.webm`} type="video/webm" />
+            <source src={vid.mp4} type="video/mp4" />
+            <source src={vid.webm} type="video/webm" />
           </video>
         )}
       </For>
