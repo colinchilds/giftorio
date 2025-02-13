@@ -1,5 +1,4 @@
 import { createSignal, createEffect } from 'solid-js';
-import bgUrl from './assets/img/background.png';
 
 // Constants
 const INITIAL_VALUES = {
@@ -132,7 +131,7 @@ function App() {
   };
 
   return (
-    <div style={{"background-image": `url(${bgUrl})`}} class="bg-cover bg-gray-500 flex items-center justify-center min-h-screen">
+    <div class="flex items-center justify-left min-h-screen ml-30">
       <div 
         classList={{
           "opacity-0": !toast().show,

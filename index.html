@@ -9,9 +9,20 @@
 </head>
 
 <body>
+  <div id="video-container">
+    <video id="bg-video-1" class="bg-video active" autoplay muted loop playsinline>
+      <source src="/web/assets/img/nyan.mp4" type="video/mp4">
+      <source src="/web/assets/img/nyan.webm" type="video/webm">
+    </video>
+    <video id="bg-video-2" class="bg-video" autoplay muted loop playsinline>
+      <source src="/web/assets/img/rick.mp4" type="video/mp4">
+      <source src="/web/assets/img/rick.webm" type="video/webm">
+    </video>
+  </div>
   <noscript>You need to enable JavaScript to run this app.</noscript>
   <div id="root"></div>
 
+  <script src="/web/backgroundVideo.js" type="module"></script>
   <script src="/web/index.jsx" type="module"></script>
 </body>
 
