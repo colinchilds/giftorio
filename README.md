@@ -35,14 +35,14 @@ cd giftorio
 2. Build the WebAssembly module:
 
 ```bash
-wasm-pack build --target web --release --out-dir web/pkg
+wasm-pack build --target web --release
 ```
 
-3. Start a local development server:
+3. Run it with NPM:
 
 ```bash
-cd web
-python -m http.server 3000
+npm install
+npm start
 ```
 
 4. Open your browser and navigate to `http://localhost:3000`
@@ -51,12 +51,8 @@ python -m http.server 3000
 
 1. Visit the website (or your local development server)
 2. Upload your GIF file
-3. Configure settings:
-   - Frame rate (default: 15 FPS)
-   - Maximum size (default: 100 pixels)
-   - Toggle Space Exploration mode
-   - Select substation quality (if Space Exploration is enabled)
-4. Click Submit
+3. Configure settings (frame rate, image size, etc.)
+4. Click Generate
 5. Copy the generated blueprint string
 6. Import the blueprint string into Factorio
 
@@ -67,6 +63,7 @@ The application:
 2. Loads and downscales the input GIF to a manageable size
 3. Converts each frame into a series of circuit network signals
 4. Creates a blueprint containing:
+   - A grid of substations to power the display
    - Constant combinators to store pixel data
    - Decider combinators to control frame timing
    - A grid of lamps to display the image
@@ -74,9 +71,10 @@ The application:
 
 ## Limitations
 
-- Maximum image size is limited by available signals
+- Maximum image size is limited by available signals, but more realistically by in-game performance.
 - Higher resolution images will require more in-game entities and may impact performance
 - Browser must support WebAssembly
+- Longer GIFs can take a really long time to process and may cause the game to lag
 
 ## Contributing
 
