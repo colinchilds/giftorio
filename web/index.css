@@ -4,10 +4,10 @@
     --color-tan-500: #ffe6c0;
     --color-green-500: #5eb663;
     --color-bright-green-500: #93e897;
+    --color-gray-100: #8e8e8e;
     --color-gray-500: #313031;
     --color-light-gray-500: #414040;
     --color-dark-gray-500: #242324;
-    --color-very-light-gray-500: #8e8e8e;
 }
 
 body {
@@ -42,7 +42,7 @@ h1, h2 {
 }
 
 .button {
-    @apply bg-very-light-gray-500 font-semibold min-w-[128px] border-none whitespace-nowrap cursor-pointer select-none h-9 text-center;
+    @apply bg-gray-100 font-semibold min-w-[128px] border-none whitespace-nowrap cursor-pointer select-none h-9 text-center;
     padding-right: 10px;
     position: relative;
     line-height: inherit;
@@ -73,19 +73,22 @@ h1, h2 {
 }
 
 .button-green-right::after {
+    @apply absolute h-full w-[24px] right-[-10px] top-0;
     content: "";
-    position: absolute;
-    height: 100%;
-    width: 24px;
-    right: -10px;
-    top: 0;
     background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABUAAABACAMAAADCiszgAAABDlBMVEUAAAASMBURLxJJgUkAKxNKiU1Ih01msGpMjVFNjlFLik9ToFdLik9Lik9Lik5Yq1wIHgoOKhGAyoVNjVFipmY3cDpQkVVrsHB2vHlXmFyK1Y5/yoRvuHNcs2E7eT8bQB1doGFAe0IJIQxNjFJDgkhjrGgGHgxetmNcs2FasF9RllVVpllXqlxRnlVQm1RYrV0cQh5SoVcUNRdQk1VLllA8e0AXOhpQkFM0bDcqXC4jTiVRmFVFiUkIHgpTpFhNmVJEh0hNj1EtYTCI1I16w35utnJXn1tNk1FJkk1HjUs/fkI3czsyajYpWSsZPhxrsW9ZnV1XmVo6dz41bzgmUygkUCYiTSUTMRUPKxEOKRFdNbmJAAAAJ3RSTlMAVisODG41Bvb75Zfc1dGXlwb98/7y8fDS0JeXl5eXl25sVjU1MSucyRWzAAABMElEQVQ4y23M51LCUBiE4QWRKFFB7L37EUJTithI6FXs7f5vxDgok3Oy+/OdZxbGdrOZ3DyDOmMn2WptHM5odbfdflzdOtGq2ek8Pa/Pqtg0nVK3eLUUVWrcvsil08UVFaeszG/WsKQsT+tYJJW3s7caFpl8FOf8WKZ40YeFYqFYKBaKhWLx44V/LBQLxaLg+T8sFAvFouFYdFIZFoqFYqFYArjuYQngeuwUEsB19wii4lqu2x+s6dXO9QavDa1atuMOG2+Bh1658VFQq5XJutX3cQjaQal8XbgMQ6N31ZtKKAJKQSkoBaWgFJSCUlAKSkEpKAWloBSUglJQCkpBKSgFpdiz8rUARTxec9yRRmGYTv/lQaMw9ocjL6oUywfjyufXdxhqTdx7O46QmjhX4w9Fq5Q/daB+bwAAAABJRU5ErkJggg==");
     background-repeat: no-repeat;
     background-position: 100% 0%;
     background-size: contain;
 }
 
-input {
+.button-green-right:hover, .button-green-right:focus, .button-green-right.hover {
+    color: #000;
+    text-decoration: none;
+    outline: 0;
+    filter: brightness(1.3) drop-shadow(0 0 2px #34be3c);
+}
+
+input[type=text] {
     box-shadow: inset 0px 2px 1px -2px #000,
                 inset 0px -3px 1px -2px #c5c5c5,
                 inset 2px 0px 1px 0px #5f5f5f,
@@ -94,27 +97,24 @@ input {
                 0px 0px 4px 1px #2e2521;
 }
 
-#video-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: -1;
+input[type=file]::file-selector-button {
+    @apply bg-green-500 text-black font-bold py-2 px-4;
+    #padding: 0.5rem 1rem;
+    #border: none;
+    #font-size: 1rem;
+    #font-weight: bold;
+    cursor: pointer;
+    box-shadow: inset 8px 0px 4px -8px #000,
+                inset -8px 0px 4px -8px #000,
+                inset 0px 10px 2px -8px #95df99,
+                inset 0px 10px 2px -8px #163218,
+                inset 0px -9px 2px -8px #000,
+                0px 0px 4px 0px #000;
 }
 
-.bg-video {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity 1s ease-in-out;
-    pointer-events: none;
-}
-
-.bg-video.active {
-    opacity: 1;
+input[type=file]::file-selector-button:hover {
+    color: #000;
+    text-decoration: none;
+    outline: 0;
+    filter: brightness(1.3) drop-shadow(0 0 2px #34be3c);
 }

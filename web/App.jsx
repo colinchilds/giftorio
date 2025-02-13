@@ -1,4 +1,5 @@
 import { createSignal, createEffect } from 'solid-js';
+import Background from './Background';
 
 // Constants
 const INITIAL_VALUES = {
@@ -14,6 +15,10 @@ function App() {
   const [progress, setProgress] = createSignal({ percentage: 0, status: 'Starting...' });
   const [blueprintData, setBlueprintData] = createSignal({ title: '', content: '' });
   const [toast, setToast] = createSignal({ show: false, message: '', isError: false });
+  const [isDragging, setIsDragging] = createSignal(false);
+  const [xOffset, setXOffset] = createSignal(0);
+  const [yOffset, setYOffset] = createSignal(0);
+  let form;
   
   // Worker setup
   const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
@@ -130,8 +135,32 @@ function App() {
     }
   };
 
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    setXOffset(e.clientX - form.getBoundingClientRect().left);
+    setYOffset(e.clientY - form.getBoundingClientRect().top);
+    e.target.style.cursor = 'grabbing';
+    setIsDragging(true);
+  };
+
+  const handleMouseUp = (e) => {
+    e.preventDefault();
+    e.target.style.cursor = 'pointer';
+    setIsDragging(false);
+  };
+
+  document.addEventListener('mousemove', (e) => {
+    if (isDragging()) {
+      form.style.position = 'absolute';
+      form.style.left = `${e.clientX - xOffset()}px`;
+      form.style.top = `${e.clientY - yOffset()}px`;
+    }
+  });
+
   return (
-    <div class="flex items-center justify-left min-h-screen ml-30">
+    <>
+    <Background />
+    <div class="flex items-center justify-center min-h-screen">
       <div 
         classList={{
           "opacity-0": !toast().show,
@@ -144,15 +173,23 @@ function App() {
         {toast().message}
       </div>
 
-      <div classList={{hidden: isGenerating()}} class="panel">
-        <h2 class="text-tan-500">Convert GIF to Blueprint</h2>
+      <div ref={form} classList={{hidden: isGenerating()}} class="panel form">
+        <div class="flex items-center justify-between">
+          <h2 class="text-tan-500">Convert GIF to Blueprint</h2>
+          <div class="flex space-x-1 mb-3 cursor-pointer" onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}>
+            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-sm"></div>
+            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-md"></div>
+            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-md"></div>
+            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-md"></div>
+          </div>
+        </div>
         <form onSubmit={handleSubmit} class="panel-inset bg-gray-500 p-6 rounded shadow-md w-full max-w-md">
           {/* File Input */}
           <div class="mb-4">
             <label class="block text-tan-500 text-sm font-bold mb-2" for="gifInput">Select File</label>
             <input
               ref={el => formRefs.gifInput = el}
-              class="bg-very-light-gray-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
               type="file"
               id="gifInput"
               required
@@ -164,7 +201,7 @@ function App() {
             <label class="block text-tan-500 text-sm font-bold mb-2" for="framerate">Framerate</label>
             <input
               ref={el => formRefs.framerate = el}
-              class="bg-very-light-gray-500 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
               type="number"
               id="framerate"
               value={INITIAL_VALUES.framerate}
@@ -177,7 +214,7 @@ function App() {
             <label class="block text-tan-500 text-sm font-bold mb-2" for="maxsize">Max Width</label>
             <input
               ref={el => formRefs.maxsize = el}
-              class="bg-very-light-gray-500 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
               type="number"
               id="maxsize"
               value={INITIAL_VALUES.maxSize}
@@ -192,7 +229,7 @@ function App() {
             <label for="toggle" class="flex items-center cursor-pointer">
               <div class="relative">
                 <input ref={el => formRefs.toggleInput = el} onChange={toggleChange} id="toggle" type="checkbox" name="toggle" class="sr-only" />
-                <div ref={el => formRefs.toggleBg = el} id="togglebg" class="bg-very-light-gray-500 block w-14 h-8 rounded-full"></div>
+                <div ref={el => formRefs.toggleBg = el} id="togglebg" class="bg-gray-100 block w-14 h-8 rounded-full"></div>
                 <div ref={el => formRefs.dot = el} class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform"></div>
               </div>
               <div ref={el => formRefs.toggleLabel = el} class="ml-3 text-tan-500 font-medium" id="toggleLabel">No</div>
@@ -206,7 +243,7 @@ function App() {
               ref={el => formRefs.substationQuality = el}
               id="substationQuality" 
               name="substationQuality" 
-              class="bg-very-light-gray-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
               defaultValue="normal"
             >
               <option value="normal">Normal</option>
@@ -247,7 +284,7 @@ function App() {
           <p ref={el => formRefs.progressStatus = el} id="progressStatus" class="text-tan-500">Starting...</p>
         </div>
         <div ref={el => formRefs.blueprintResult = el} id="blueprintResult" classList={{hidden: !isGenerating()}}>
-          <div ref={el => formRefs.responseText = el} id="responseText" class="panel-inset-light text-very-light-gray-500 p-3 border rounded overflow-auto max-h-64 mb-6"></div>
+          <div ref={el => formRefs.responseText = el} id="responseText" class="panel-inset-light text-gray-100 p-3 border rounded overflow-auto max-h-64 mb-6"></div>
           <div class="flex items-center justify-between">
             <button onClick={() => setIsGenerating(false)} id="backButton" class="button">
               Back
@@ -259,6 +296,7 @@ function App() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
