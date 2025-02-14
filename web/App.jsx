@@ -176,17 +176,12 @@ function App() {
       <div ref={form} classList={{hidden: isGenerating()}} class="panel form">
         <div class="flex items-center justify-between">
           <h2 class="text-tan-500">Convert GIF to Blueprint</h2>
-          <div class="flex space-x-1 mb-3 cursor-pointer" onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}>
-            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-sm"></div>
-            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-md"></div>
-            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-md"></div>
-            <div class="h-8 w-1 bg-gray-100 shadow-gray-900 shadow-md"></div>
-          </div>
+          <div class="handle cursor-pointer" onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}></div>
         </div>
-        <form onSubmit={handleSubmit} class="panel-inset bg-gray-500 p-6 rounded shadow-md w-full max-w-md">
+        <form onSubmit={handleSubmit} class="panel-inset-light bg-gray-500 p-6 rounded shadow-md w-full max-w-md">
           {/* File Input */}
           <div class="mb-4">
-            <label class="block text-tan-500 text-sm font-bold mb-2" for="gifInput">Select File</label>
+            <label class="block text-white-500 mb-2" for="gifInput">Select File</label>
             <input
               ref={el => formRefs.gifInput = el}
               class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
@@ -198,7 +193,7 @@ function App() {
 
           {/* Framerate Input */}
           <div class="mb-4">
-            <label class="block text-tan-500 text-sm font-bold mb-2" for="framerate">Framerate</label>
+            <label class="block text-white-500 mb-2" for="framerate">Framerate</label>
             <input
               ref={el => formRefs.framerate = el}
               class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
@@ -211,7 +206,7 @@ function App() {
 
           {/* Max Size Input */}
           <div class="mb-4">
-            <label class="block text-tan-500 text-sm font-bold mb-2" for="maxsize">Max Width</label>
+            <label class="block text-white-500 mb-2" for="maxsize">Max Width</label>
             <input
               ref={el => formRefs.maxsize = el}
               class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
@@ -225,20 +220,20 @@ function App() {
 
           {/* Toggle Input */}
           <div class="mb-4 flex items-center">
-            <span class="mr-4 text-tan-500 font-bold">Space Age?</span>
+            <span class="mr-4 text-white-500">Space Age?</span>
             <label for="toggle" class="flex items-center cursor-pointer">
               <div class="relative">
                 <input ref={el => formRefs.toggleInput = el} onChange={toggleChange} id="toggle" type="checkbox" name="toggle" class="sr-only" />
                 <div ref={el => formRefs.toggleBg = el} id="togglebg" class="bg-gray-100 block w-14 h-8 rounded-full"></div>
                 <div ref={el => formRefs.dot = el} class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform"></div>
               </div>
-              <div ref={el => formRefs.toggleLabel = el} class="ml-3 text-tan-500 font-medium" id="toggleLabel">No</div>
+              <div ref={el => formRefs.toggleLabel = el} class="ml-3 text-white-500 font-medium" id="toggleLabel">No</div>
             </label>
           </div>
 
           {/* Substation Quality Select */}
           <div class="mb-4">
-            <label class="block text-tan-500 text-sm font-bold mb-2" for="substationQuality">Substation Quality</label>
+            <label class="block text-white-500 mb-2" for="substationQuality">Substation Quality</label>
             <select 
               ref={el => formRefs.substationQuality = el}
               id="substationQuality" 
