@@ -27,6 +27,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
@@ -34,7 +35,7 @@ jobs:
 
       - name: Build with wasm-pack
         run: |
-          cargo install wasm-pack
+          which wasm-pack || cargo install wasm-pack
           wasm-pack build --target web --release
 
       - name: Yarn
