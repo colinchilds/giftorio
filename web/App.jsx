@@ -181,7 +181,6 @@ function App() {
         <form onSubmit={handleSubmit} class="panel-inset-light bg-gray-500 p-6 rounded shadow-md w-full max-w-md">
           {/* File Input */}
           <div class="mb-4">
-            <label class="block text-white-500 mb-2" for="gifInput">Select File</label>
             <input
               ref={el => formRefs.gifInput = el}
               class="text-white-500 w-full focus:outline-none focus:ring"
