@@ -184,7 +184,7 @@ function App() {
             <label class="block text-white-500 mb-2" for="gifInput">Select File</label>
             <input
               ref={el => formRefs.gifInput = el}
-              class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              class="text-white-500 w-full focus:outline-none focus:ring"
               type="file"
               id="gifInput"
               required
