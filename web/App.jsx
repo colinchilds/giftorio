@@ -1,15 +1,24 @@
-import { createSignal, createEffect } from 'solid-js';
+import { createSignal, createEffect, Show } from 'solid-js';
+import { createStore } from 'solid-js/store';
 import Background from './Background';
 
 // Constants
 const INITIAL_VALUES = {
   framerate: 15,
   maxSize: 50,
-  substationQualities: ['none', 'normal', 'uncommon', 'rare', 'epic', 'legendary']
+  substationQualities: ['none', 'normal', 'uncommon', 'rare', 'epic', 'legendary'],
+  substationQuality: 'normal',
 };
 
 function App() {
   // State
+  const [formData, setFormData] = createStore({
+    file: null,
+    targetFps: INITIAL_VALUES.framerate,
+    maxSize: INITIAL_VALUES.maxSize,
+    useDLC: false,
+    substationQuality: INITIAL_VALUES.substationQuality,
+  });
   const [isGenerating, setIsGenerating] = createSignal(false);
   const [isDlc, setIsDlc] = createSignal(false);
   const [progress, setProgress] = createSignal({ percentage: 0, status: 'Starting...' });
@@ -18,8 +27,9 @@ function App() {
   const [isDragging, setIsDragging] = createSignal(false);
   const [xOffset, setXOffset] = createSignal(0);
   const [yOffset, setYOffset] = createSignal(0);
+  const [showAdvanced, setShowAdvanced] = createSignal(false);
   let form;
-  
+
   // Worker setup
   const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
@@ -93,14 +103,6 @@ function App() {
     formRefs.blueprintResult.classList.add("hidden");
     setProgress({ percentage: 0, status: 'Starting...' });
 
-    const formData = {
-      file: formRefs.gifInput.files[0],
-      targetFps: formRefs.framerate.value,
-      maxSize: formRefs.maxsize.value,
-      useDlc: isDlc(),
-      substationQuality: formRefs.substationQuality?.value || 'normal'
-    };
-
     if (!formData.file) {
       setToast({ show: true, message: 'Please select a file', isError: true });
       setTimeout(() => setToast({ show: false, message: '', isError: false }), 3000);
@@ -123,7 +125,7 @@ function App() {
         gifData,
         targetFps: formData.targetFps,
         maxSize: formData.maxSize,
-        useDlc: formData.useDlc,
+        useDlc: formData.useDLC,
         substationQuality: formData.substationQuality
       });
     } catch (err) {
@@ -179,6 +181,7 @@ function App() {
           <div class="handle cursor-pointer" onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}></div>
         </div>
         <form onSubmit={handleSubmit} class="panel-inset-light bg-gray-500 p-6 rounded shadow-md w-full max-w-md">
+          <Show when={!showAdvanced()}>
           {/* File Input */}
           <div class="mb-4">
             <input
@@ -187,19 +190,8 @@ function App() {
               type="file"
               id="gifInput"
               required
-            />
-          </div>
-
-          {/* Framerate Input */}
-          <div class="mb-4">
-            <label class="block text-white-500 mb-2" for="framerate">Framerate</label>
-            <input
-              ref={el => formRefs.framerate = el}
-              class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
-              type="number"
-              id="framerate"
-              value={INITIAL_VALUES.framerate}
-              placeholder="Enter max framerate (won't exceed original)"
+              onChange={e => setFormData('file', e.target.files[0])}
+              accept="image/gif"
             />
           </div>
 
@@ -211,22 +203,52 @@ function App() {
               class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
               type="number"
               id="maxsize"
-              value={INITIAL_VALUES.maxSize}
+              onInput={e => setFormData('maxSize', e.target.value)}
+              value={formData.maxSize}
               min="2"
               max="300"
             />
           </div>
 
-          {/* Toggle Input */}
-          <div class="mb-4 flex items-center">
-            <span class="mr-4 text-white-500">Space Age?</span>
-            <label for="toggle" class="flex items-center cursor-pointer">
-              <div class="relative">
-                <input ref={el => formRefs.toggleInput = el} onChange={toggleChange} id="toggle" type="checkbox" name="toggle" class="sr-only" />
-                <div ref={el => formRefs.toggleBg = el} id="togglebg" class="bg-gray-100 block w-14 h-8 rounded-full"></div>
-                <div ref={el => formRefs.dot = el} class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform"></div>
-              </div>
-              <div ref={el => formRefs.toggleLabel = el} class="ml-3 text-white-500 font-medium" id="toggleLabel">No</div>
+
+          {/* Advanced Settings and Submit Buttons */}
+          <div class="flex items-center justify-between">
+            <button
+              class="button bg-gray-100 px-4"
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced())}>
+              Advanced Options
+            </button>
+            <button
+              class="button button-green-right"
+              ref={el => formRefs.submitButton = el}
+              id="submit"
+              type="submit">
+              Generate
+            </button>
+          </div>
+          </Show>
+
+          <Show when={showAdvanced()}>
+          {/* Use grayscale
+          <div class="flex mb-4">
+            <label class="checkbox-label">
+              <input type="checkbox" class="sr-only" />
+              <div class="checkbox"></div>
+              <div>Convert to Grayscale</div>
+            </label>
+          </div> */}
+
+          {/* DLC toggle */}
+          <div class="mb-4 flex">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                class="sr-only"
+                checked={formData.useDLC}
+                onChange={e => setFormData("useDLC", e.currentTarget.checked)} />
+              <div class="checkbox"></div>
+              <div class="ml-4 text-white-500">Use Space Age DLC?</div>
             </label>
           </div>
 
@@ -238,10 +260,11 @@ function App() {
               id="substationQuality" 
               name="substationQuality" 
               class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
-              defaultValue="normal"
+              value={formData.substationQuality}
+              onChange={e => setFormData("substationQuality", e.currentTarget.value)}
             >
               <option value="normal">Normal</option>
-              {isDlc() && (
+              {formData.useDLC && (
                 <>
                   <option value="uncommon">Uncommon</option>
                   <option value="rare">Rare</option>
@@ -253,16 +276,31 @@ function App() {
             </select>
           </div>
 
-          {/* Submit Button */}
+          {/* Framerate Input */}
+          <div class="mb-4">
+            <label class="block text-white-500 mb-2" for="framerate">Framerate</label>
+            <input
+              ref={el => formRefs.framerate = el}
+              class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              type="number"
+              id="framerate"
+              value={formData.targetFps}
+              onChange={e => setFormData('targetFps', e.target.value)}
+              placeholder="Enter max framerate (won't exceed original)"
+            />
+          </div>
+
+          {/* Confirm button */}
           <div class="flex items-center justify-end">
             <button
               class="button button-green-right"
-              ref={el => formRefs.submitButton = el}
-              id="submit"
-              type="submit">
-              Generate
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced())}>
+              Confirm
             </button>
           </div>
+
+          </Show>
         </form>
       </div>
 

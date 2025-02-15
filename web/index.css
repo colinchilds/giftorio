@@ -9,6 +9,7 @@
     --color-light-gray-500: #414040;
     --color-dark-gray-500: #242324;
     --color-white-500: #cccccc;
+    --color-orange-500: #e39827;
 }
 
 body {
@@ -38,7 +39,6 @@ h1, h2 {
 
 .button {
     @apply bg-gray-100 font-semibold min-w-[128px] border-none whitespace-nowrap cursor-pointer select-none h-9 text-center;
-    padding-right: 10px;
     position: relative;
     line-height: inherit;
     box-shadow: inset 8px 0px 4px -8px #000, 
@@ -59,7 +59,7 @@ h1, h2 {
 }
 
 .button-green-right {
-    @apply bg-green-500 text-right inline-block mr-[14px];
+    @apply bg-green-500 text-right inline-block mr-[14px] pr-[10px];
     box-shadow: inset 8px 0px 4px -8px #000,
                 inset 0px 10px 2px -8px #95df99,
                 inset 0px 10px 2px -8px #163218,
@@ -132,4 +132,71 @@ input[type=file]::file-selector-button:hover {
     height: 39px;
     margin-top: -22px;
     margin-right: -7px;
+}
+
+.checkbox {
+    box-shadow: 
+                inset 0px -1px 1px 0px #fff,
+                inset 2px 0px 2px 0px #323232,
+                inset -2px 0px 2px 0px #323232,
+                inset 0px 4px 2.5px -2.5px #111,
+                inset 0px -4px 2px -2px #8e8e8e,
+                0px 0px 4px 1px #2e2521;
+}
+
+.checkbox-label {
+    margin-top: 8px;
+    margin-bottom: 8px;
+    display: flex;
+    align-content: center;
+    position: relative;
+    cursor: pointer;
+    line-height: 1.2;
+    break-inside: avoid;
+}
+
+.checkbox-label input {
+    top: 0px;
+    left: 0px;
+    width: 16px;
+    height: 16px;
+    padding: 6px;
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.checkbox-label .checkbox {
+    margin: auto;
+    position: relative;
+    top: 0px;
+    left: 0px;
+    width: 16px;
+    height: 16px;
+    padding: 6px;
+    background: #8e8e8e;
+    box-shadow: inset 0px 4px 2.5px -2.5px #111, inset 2px 0px 2px 0px #323232, inset -2px 0px 2px 0px #323232, inset 0px -1px 1px 0px #fff, inset 0px -4px 2px -2px #8e8e8e, 0px 0px 4px 1px #2e2521;
+}
+
+.checkbox-label .checkbox::after {
+    position: absolute;
+    content: "";
+}
+
+.checkbox-label input:checked~.checkbox::after {
+    -webkit-transform: rotate(45deg) scale(1);
+    -ms-transform: rotate(45deg) scale(1);
+    transform: rotate(45deg) scale(1);
+    opacity: 1;
+    left: 6px;
+    top: 3px;
+    width: 5px;
+    height: 9px;
+    border: solid #282728;
+    border-width: 0 2.5px 2.5px 0;
+    background-color: transparent;
+    border-radius: 0;
+}
+input[type=checkbox]:checked~.checkbox {
+    background-color: var(--color-orange-500);
 }
