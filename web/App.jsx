@@ -101,7 +101,7 @@ function App() {
         gifData,
         targetFps: formData.targetFps,
         maxSize: formData.maxSize,
-        useDlc: formData.useDLC,
+        useDLC: formData.useDLC,
         substationQuality: formData.substationQuality,
         useGrayscale: formData.useGrayscale,
       });
