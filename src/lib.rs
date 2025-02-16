@@ -356,7 +356,7 @@ fn generate_frame_combinators(
     base_decider_x: f64,
     base_y: f64,
     max_rows_per_group: u32,
-) -> (Vec<Value>, Vec<Value>, u32, u32) {
+) -> (Vec<Value>, Vec<Value>, u32) {
     let mut new_entities = Vec::new();
     let mut wires = Vec::new();
     let mut current_entity_number = base_entity_number;
@@ -365,7 +365,6 @@ fn generate_frame_combinators(
     let mut y_offset = 0.0;
     let mut row_in_this_column = 0;
     let mut previous_first_decider: Option<u32> = None;
-
     for (i, sections) in frame_sections.iter().enumerate() {
         let mut current_y = base_y - row_in_this_column as f64 - y_offset;
         if occupied_y.contains(&(current_y.floor() as i32)) {
@@ -441,8 +440,7 @@ fn generate_frame_combinators(
     (
         new_entities,
         wires,
-        current_entity_number,
-        previous_first_decider.unwrap_or(base_entity_number),
+        current_entity_number
     )
 }
 
@@ -455,11 +453,12 @@ fn generate_lamps(
     start_entity_number: u32,
     start_x: i32,
     start_y: i32,
-) -> (Vec<Value>, Vec<Value>, u32) {
+) -> (Vec<Value>, Vec<Value>, u32, u32) {
     let mut lamp_entities = Vec::new();
     let mut lamp_wires = Vec::new();
     let mut current_entity = start_entity_number;
     let mut previous_entities: HashMap<i32, u32> = HashMap::new();
+    let mut top_right_lamp: u32 = 0;
     for r in 0..grid_height as i32 {
         for c in 0..grid_width as i32 {
             let x = start_x + c;
@@ -482,6 +481,8 @@ fn generate_lamps(
             lamp_entities.push(lamp);
             if r == 0 && c > 0 {
                 lamp_wires.push(json!([current_entity, 1, current_entity - 1, 1]));
+                lamp_wires.push(json!([current_entity, 2, current_entity - 1, 2]));
+                top_right_lamp = current_entity;
             }
             if r > 0 {
                 if let Some(&prev_entity) = previous_entities.get(&x) {
@@ -492,7 +493,7 @@ fn generate_lamps(
             current_entity += 1;
         }
     }
-    (lamp_entities, lamp_wires, current_entity)
+    (lamp_entities, lamp_wires, current_entity, top_right_lamp)
 }
 
 // Build the complete blueprint JSON.
@@ -561,7 +562,7 @@ pub fn update_full_blueprint(
     all_entities.extend(substation_entities);
     all_wires.extend(substation_wires);
     let substation_occupied_y: HashSet<i32> = occupied_cells.iter().map(|(_, y)| *y).collect();
-    let mut previous_first_decider_entity: Option<u32> = None;
+    let mut previous_top_right_lamp: Option<u32> = None;
     for group_index in 0..num_groups {
         let group_left = group_index * max_columns_per_group;
         let group_right = ((group_index + 1) * max_columns_per_group).min(full_width);
@@ -580,7 +581,7 @@ pub fn update_full_blueprint(
         }
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = next_entity + 1;
-        let (group_combinators, mut group_comb_wires, new_next_entity, last_connection_entity) =
+        let (group_combinators, mut group_comb_wires, new_next_entity) =
             generate_frame_combinators(
                 &group_frames_sections,
                 &substation_occupied_y,
@@ -599,7 +600,7 @@ pub fn update_full_blueprint(
 
         // Generate lamps
         let first_lamp_entity = next_entity.clone();
-        let (group_lamps, group_lamp_wires, new_next_entity) = generate_lamps(
+        let (group_lamps, mut group_lamp_wires, new_next_entity, top_right_lamp) = generate_lamps(
             &signals_subset,
             group_width,
             full_height,
@@ -611,11 +612,12 @@ pub fn update_full_blueprint(
         next_entity = new_next_entity;
 
         group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
+        group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
 
-        if let Some(prev) = previous_first_decider_entity {
-            group_comb_wires.push(json!([first_connection_entity, 2, prev, 2]));
+        if let Some(prev) = previous_top_right_lamp {
+            group_lamp_wires.push(json!([first_lamp_entity, 2, prev, 2]));
         }
-        previous_first_decider_entity = Some(last_connection_entity);
+        previous_top_right_lamp = Some(top_right_lamp);
         all_entities.extend(group_combinators);
         all_entities.extend(group_lamps);
         all_wires.extend(group_comb_wires);
