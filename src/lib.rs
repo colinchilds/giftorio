@@ -60,7 +60,7 @@ pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
 }
 
 // Load and downscale a GIF from a byte slice. Returns a vector of (frame, duration_ms)
-pub fn downscale_gif(gif_data: &[u8], max_size: u32) -> Result<Vec<(DynamicImage, u32)>, JsValue> {
+pub fn downscale_gif(gif_data: &[u8], max_size: u32, use_grayscale: bool) -> Result<Vec<(DynamicImage, u32)>, JsValue> {
     let cursor = std::io::Cursor::new(gif_data);
     let decoder = image::codecs::gif::GifDecoder::new(cursor)
         .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?;
@@ -77,7 +77,10 @@ pub fn downscale_gif(gif_data: &[u8], max_size: u32) -> Result<Vec<(DynamicImage
         let (ms, _) = frame.delay().numer_denom_ms();
         let delay = if ms == 0 { 100 } else { ms };
         let frame_buffer = frame.into_buffer();
-        let img = DynamicImage::ImageRgba8(frame_buffer);
+        let mut img = DynamicImage::ImageRgba8(frame_buffer);
+        if use_grayscale {
+            img = image::DynamicImage::ImageLuma8(img.to_luma8());
+        }
         let (width, height) = img.dimensions();
         let scale_factor = (max_size as f64 / width as f64)
             .min(max_size as f64 / height as f64)
@@ -680,12 +683,13 @@ pub fn run_blueprint(
     target_fps: u32,
     max_size: u32,
     substation_quality: &str,
+    use_grayscale: bool,
 ) -> Result<String, JsValue> {
     // Parse available signals.
     let signals: Vec<Value> = serde_json::from_str(signals_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse signals JSON: {}", e)))?;
     // Downscale the input GIF.
-    let frames_with_duration = downscale_gif(gif_data, max_size)?;
+    let frames_with_duration = downscale_gif(gif_data, max_size, use_grayscale)?;
     let fps = calculate_fps(&frames_with_duration, target_fps);
     let sampled_frames = sample_frames(&frames_with_duration, fps);
     if sampled_frames.is_empty() {

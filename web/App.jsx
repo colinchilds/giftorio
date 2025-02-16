@@ -4,23 +4,19 @@ import Background from './Background';
 
 // Constants
 const INITIAL_VALUES = {
-  framerate: 15,
+  file: null,
+  targetFps: 15,
   maxSize: 50,
+  useDLC: false,
   substationQualities: ['none', 'normal', 'uncommon', 'rare', 'epic', 'legendary'],
   substationQuality: 'normal',
+  useGrayscale: false,
 };
 
 function App() {
   // State
-  const [formData, setFormData] = createStore({
-    file: null,
-    targetFps: INITIAL_VALUES.framerate,
-    maxSize: INITIAL_VALUES.maxSize,
-    useDLC: false,
-    substationQuality: INITIAL_VALUES.substationQuality,
-  });
+  const [formData, setFormData] = createStore({...INITIAL_VALUES});
   const [isGenerating, setIsGenerating] = createSignal(false);
-  const [isDlc, setIsDlc] = createSignal(false);
   const [progress, setProgress] = createSignal({ percentage: 0, status: 'Starting...' });
   const [blueprintData, setBlueprintData] = createSignal({ title: '', content: '' });
   const [toast, setToast] = createSignal({ show: false, message: '', isError: false });
@@ -59,26 +55,6 @@ function App() {
   };
 
   // Event handlers
-  const toggleChange = () => {
-    const isChecked = formRefs.toggleInput.checked;
-    const currentQuality = formRefs.substationQuality.value;
-    
-    formRefs.toggleLabel.textContent = isChecked ? 'Yes' : 'No';
-    formRefs.toggleBg.classList.toggle('bg-dark-gray-500', isChecked);
-    formRefs.toggleBg.classList.toggle('bg-light-gray-500', !isChecked);
-    
-    // Store the current quality before state update
-    if (!isChecked && ['uncommon', 'rare', 'epic', 'legendary'].includes(currentQuality)) {
-      // Set timeout to run after the reactive updates
-      setTimeout(() => {
-        formRefs.substationQuality.value = 'normal';
-      }, 0);
-    }
-    
-    setIsDlc(isChecked);
-    formRefs.dot.style.transform = isChecked ? 'translateX(100%)' : 'translateX(0)';
-  };
-
   const toClipboard = async () => {
     try {
       await navigator.clipboard.writeText(formRefs.responseText.innerText);
@@ -126,7 +102,8 @@ function App() {
         targetFps: formData.targetFps,
         maxSize: formData.maxSize,
         useDlc: formData.useDLC,
-        substationQuality: formData.substationQuality
+        substationQuality: formData.substationQuality,
+        useGrayscale: formData.useGrayscale,
       });
     } catch (err) {
       console.error('Failed to process file:', err);
@@ -230,15 +207,6 @@ function App() {
           </Show>
 
           <Show when={showAdvanced()}>
-          {/* Use grayscale
-          <div class="flex mb-4">
-            <label class="checkbox-label">
-              <input type="checkbox" class="sr-only" />
-              <div class="checkbox"></div>
-              <div>Convert to Grayscale</div>
-            </label>
-          </div> */}
-
           {/* DLC toggle */}
           <div class="mb-4 flex">
             <label class="checkbox-label">
@@ -288,6 +256,20 @@ function App() {
               onChange={e => setFormData('targetFps', e.target.value)}
               placeholder="Enter max framerate (won't exceed original)"
             />
+          </div>
+
+          {/* Use grayscale */}
+          <div class="mb-4 flex">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                class="sr-only"
+                checked={formData.useGrayscale}
+                onChange={e => setFormData("useGrayscale", e.currentTarget.checked)}
+              />
+              <div class="checkbox"></div>
+              <div class="ml-4 text-white-500">Convert to Grayscale</div>
+            </label>
           </div>
 
           {/* Confirm button */}
