@@ -170,6 +170,7 @@ dependencies = [
  "flate2",
  "image",
  "js-sys",
+ "rayon",
  "serde",
  "serde_json",
  "wasm-bindgen",

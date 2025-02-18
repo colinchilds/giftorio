@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::thread_local;
 use wasm_bindgen::prelude::*;
+use rayon::prelude::*;
 
 use image::imageops::FilterType;
 use image::AnimationDecoder;
@@ -40,13 +41,13 @@ fn report_progress(percentage: u32, status: &str) {
 // Helper: encode the complete blueprint (JSON) as a Factorio blueprint string.
 pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
     report_progress(80, "Encoding blueprint...");
-    let json_str = serde_json::to_string(blueprint)
+    let json_bytes = serde_json::to_vec(blueprint)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
 
     report_progress(85, "Compressing blueprint...");
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
     encoder
-        .write_all(json_str.as_bytes())
+        .write_all(&json_bytes)
         .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
 
     let compressed = encoder
@@ -59,64 +60,75 @@ pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
     Ok(format!("0{}", b64_encoded))
 }
 
-// Load and downscale a GIF from a byte slice. Returns a vector of (frame, duration_ms)
-pub fn downscale_gif(gif_data: &[u8], max_size: u32, use_grayscale: bool) -> Result<Vec<(DynamicImage, u32)>, JsValue> {
+pub fn process_gif(
+    gif_data: &[u8],
+    max_size: u32,
+    target_fps: u32,
+    use_grayscale: bool,
+) -> Result<(Vec<DynamicImage>, u32), JsValue> {
+    // --- First Pass: Decode and collect durations ---
     let cursor = std::io::Cursor::new(gif_data);
     let decoder = image::codecs::gif::GifDecoder::new(cursor)
         .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?;
     let frames = decoder.into_frames();
     let frame_vec = frames.collect_frames()
         .map_err(|e| JsValue::from_str(&format!("Frame collection error: {}", e)))?;
-    let mut result = Vec::new();
-    for frame in frame_vec {
-        // Get delay in ms; if unavailable, default to 100
-        // Instead of this (which causes an error):
-        // let delay = frame.delay().numer_denom_ms().map(|(ms, _)| ms).unwrap_or(100);
 
-        // Use this approach:
+    let mut durations = Vec::with_capacity(frame_vec.len());
+    let mut total_ms = 0u32;
+    for frame in &frame_vec {
         let (ms, _) = frame.delay().numer_denom_ms();
+        // Use 100ms as a fallback if delay is 0.
         let delay = if ms == 0 { 100 } else { ms };
-        let frame_buffer = frame.into_buffer();
-        let mut img = DynamicImage::ImageRgba8(frame_buffer);
-        if use_grayscale {
-            img = image::DynamicImage::ImageLuma8(img.to_luma8());
-        }
-        let (width, height) = img.dimensions();
-        let scale_factor = (max_size as f64 / width as f64)
-            .min(max_size as f64 / height as f64)
-            .min(1.0);
-        let new_width = (width as f64 * scale_factor).round() as u32;
-        let new_height = (height as f64 * scale_factor).round() as u32;
-        let resized = img.resize(new_width, new_height, FilterType::Triangle);
-        result.push((resized, delay));
+        durations.push(delay);
+        total_ms += delay;
     }
-    Ok(result)
-}
 
-pub fn calculate_fps(frames_with_duration: &[(DynamicImage, u32)], target_fps: u32) -> u32 {
-    let total_ms: u32 = frames_with_duration.iter().map(|(_, ms)| ms).sum();
-    let avg_frame_duration = total_ms as f64 / frames_with_duration.len() as f64;
+    // Compute average frame duration and original FPS.
+    let avg_frame_duration = total_ms as f64 / frame_vec.len() as f64;
     let original_fps = (1000.0 / avg_frame_duration).floor() as u32;
     let effective_fps = target_fps.min(original_fps);
-    effective_fps
-}
 
-// Sample frames evenly to reach the target FPS.
-pub fn sample_frames(frames: &[(DynamicImage, u32)], fps: u32) -> Vec<DynamicImage> {
-    let total_ms: u32 = frames.iter().map(|(_, ms)| ms).sum();
-    let total_frames = frames.len();
-    let avg_frame_duration = total_ms as f64 / total_frames as f64;
-    let target_total_frames = ((total_ms as f64 / 1000.0) * fps as f64).round() as u32;
-    let mut sampled = Vec::new();
-    for i in 0..target_total_frames {
-        let target_time = i as f64 * (1000.0 / fps as f64);
-        let mut orig_index = (target_time / avg_frame_duration).round() as usize;
-        if orig_index >= total_frames {
-            orig_index = total_frames - 1;
+    // Determine the total number of frames needed in the output.
+    let target_total_frames = ((total_ms as f64 / 1000.0) * effective_fps as f64).round() as usize;
+
+    // --- Choose Which Frames to Process ---
+    // One way is to use cumulative timing:
+    let mut sampled_indices = Vec::with_capacity(target_total_frames);
+    let mut next_target_time = 0.0;
+    let mut accumulated_time = 0.0;
+    for (i, &delay) in durations.iter().enumerate() {
+        accumulated_time += delay as f64;
+        // If the accumulated time has passed the next sample time, select this frame.
+        while accumulated_time >= next_target_time && sampled_indices.len() < target_total_frames {
+            sampled_indices.push(i);
+            next_target_time += 1000.0 / effective_fps as f64;
         }
-        sampled.push(frames[orig_index].0.clone());
     }
-    sampled
+    // Fallback in case we end up with too few frames.
+    if sampled_indices.is_empty() {
+        sampled_indices.push(0);
+    }
+
+    // --- Second Pass: Process Only the Sampled Frames ---
+    let processed: Vec<DynamicImage> = sampled_indices
+        .par_iter()
+        .map(|&i| {
+            let frame = &frame_vec[i];
+            let mut img = DynamicImage::ImageRgba8(frame.clone().into_buffer());
+            if use_grayscale {
+                img = DynamicImage::ImageLuma8(img.to_luma8());
+            }
+            let (width, height) = img.dimensions();
+            let scale_factor = (max_size as f64 / width as f64)
+                .min(max_size as f64 / height as f64)
+                .min(1.0);
+            let new_width = (width as f64 * scale_factor).round() as u32;
+            let new_height = (height as f64 * scale_factor).round() as u32;
+            img.resize(new_width, new_height, FilterType::Triangle)
+        })
+        .collect();
+    Ok((processed, effective_fps))
 }
 
 // Convert an (RGB) pixel to an integer.
@@ -142,9 +154,11 @@ fn frame_to_sections(
     // Convert the frame to RGB8 for consistent pixel data.
     let rgb_image = frame.to_rgb8();
     let pixels = rgb_image.into_raw();
-    let mut filters = Vec::new();
-    let mut sections = Vec::new();
-    let mut index = 1;
+
+    // Preallocate section storage.
+    let mut sections = Vec::with_capacity(num_pixels / 1000 + 1);
+    let mut filters = Vec::with_capacity(1000);
+    let mut filter_index = 1;
     let mut section_index = 1;
     for (i, chunk) in pixels.chunks(3).enumerate() {
         if chunk.len() < 3 {
@@ -154,35 +168,43 @@ fn frame_to_sections(
         let g = chunk[1];
         let b = chunk[2];
         let value = rgb_to_int(r, g, b);
-        // Build a filter entry.
-        let mut filter = serde_json::Map::new();
-        filter.insert("index".to_string(), json!(index));
-        filter.insert("comparator".to_string(), json!("="));
-        filter.insert("count".to_string(), json!(value));
-        filter.insert("quality".to_string(), json!("normal"));
-        // Merge in the corresponding signal data.
+
+        // Preallocate the map with an estimated capacity.
+        let mut filter = serde_json::Map::with_capacity(6);
+        filter.insert("index".to_string(), Value::Number(filter_index.into()));
+        filter.insert("comparator".to_string(), Value::String("=".to_string()));
+        filter.insert("count".to_string(), Value::Number(value.into()));
+        filter.insert("quality".to_string(), Value::String("normal".to_string()));
+        // Merge in the corresponding signal data if it is an object.
         if let Value::Object(map) = &signals_subset[i] {
             for (k, v) in map {
                 filter.insert(k.clone(), v.clone());
             }
         }
         filters.push(Value::Object(filter));
-        if index == 1000 {
-            sections.push(json!({
-                "index": section_index,
-                "filters": filters
-            }));
-            index = 1;
+
+        if filter_index == 1000 {
+            // Create the section from the accumulated filters.
+            // Instead of using the json! macro in the inner loop, you might build the map directly.
+            let mut section = serde_json::Map::with_capacity(2);
+            section.insert("index".to_string(), Value::Number(section_index.into()));
+            section.insert("filters".to_string(), Value::Array(filters));
+            sections.push(Value::Object(section));
+            // Prepare for the next section.
+            filters = Vec::with_capacity(1000);
             section_index += 1;
-            filters = Vec::new();
+            filter_index = 1;
         } else {
-            index += 1;
+            filter_index += 1;
         }
     }
-    sections.push(json!({
-        "index": section_index,
-        "filters": filters
-    }));
+    // Push any remaining filters as the final section.
+    if !filters.is_empty() {
+        let mut section = serde_json::Map::with_capacity(2);
+        section.insert("index".to_string(), Value::Number(section_index.into()));
+        section.insert("filters".to_string(), Value::Array(filters));
+        sections.push(Value::Object(section));
+    }
 
     Ok(sections)
 }
@@ -357,8 +379,10 @@ fn generate_frame_combinators(
     base_y: f64,
     max_rows_per_group: u32,
 ) -> (Vec<Value>, Vec<Value>, u32) {
-    let mut new_entities = Vec::new();
-    let mut wires = Vec::new();
+    let num_frames = frame_sections.len();
+    let mut new_entities = Vec::with_capacity(num_frames * 2);
+    let mut wires = Vec::with_capacity(num_frames * 3);
+
     let mut current_entity_number = base_entity_number;
     let mut first_decider = true;
     let mut x_offset = 0.0;
@@ -371,8 +395,10 @@ fn generate_frame_combinators(
             y_offset += 2.0;
             current_y -= 2.0;
         }
+
         let constant_num = current_entity_number;
         let decider_num = current_entity_number + 1;
+
         let constant_entity = json!({
             "entity_number": constant_num,
             "name": "constant-combinator",
@@ -384,8 +410,9 @@ fn generate_frame_combinators(
                 }
             }
         });
-        let lower_bound = i as u32 * ticks_per_frame as u32;
-        let upper_bound = (i as u32 + 1) * ticks_per_frame as u32;
+        let lower_bound = (i as u32) * (ticks_per_frame as u32);
+        let upper_bound = ((i as u32) + 1) * (ticks_per_frame as u32);
+
         let decider_entity = json!({
             "entity_number": decider_num,
             "name": "decider-combinator",
@@ -414,6 +441,8 @@ fn generate_frame_combinators(
         });
         new_entities.push(constant_entity);
         new_entities.push(decider_entity);
+
+        // Wire the constant to the decider.
         wires.push(json!([constant_num, 1, decider_num, 1]));
         if !first_decider {
             let previous_decider_id = decider_num - 2;
@@ -426,10 +455,12 @@ fn generate_frame_combinators(
             }
             previous_first_decider = Some(decider_num);
         }
+
         first_decider = false;
         current_entity_number += 2;
-
         row_in_this_column += 1;
+
+        // Reset row count and adjust offsets when we exceed max rows.
         if row_in_this_column >= max_rows_per_group {
             row_in_this_column = 0;
             first_decider = true;
@@ -690,16 +721,13 @@ pub fn run_blueprint(
     // Parse available signals.
     let signals: Vec<Value> = serde_json::from_str(signals_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse signals JSON: {}", e)))?;
-    // Downscale the input GIF.
-    let frames_with_duration = downscale_gif(gif_data, max_size, use_grayscale)?;
-    let fps = calculate_fps(&frames_with_duration, target_fps);
-    let sampled_frames = sample_frames(&frames_with_duration, fps);
-    if sampled_frames.is_empty() {
+    let (frames, fps) = process_gif(gif_data, max_size, target_fps, use_grayscale)?;
+    if frames.is_empty() {
         return Err(JsValue::from_str("No frames sampled!"));
     }
     // Build the complete blueprint.
     let blueprint_json =
-        update_full_blueprint(fps, sampled_frames, use_dlc, signals, substation_quality)?;
+        update_full_blueprint(fps, frames, use_dlc, signals, substation_quality)?;
     // Encode the blueprint as a Factorio blueprint string.
     let blueprint_str = encode_blueprint(&blueprint_json)?;
     Ok(blueprint_str)
