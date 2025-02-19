@@ -1,6 +1,6 @@
 # GIFtorio
 
-GIFtorio is a web application that converts animated GIFs into Factorio blueprints. The resulting blueprint creates an animated display using the game's circuit network and lamp display system.
+[GIFtorio](https://giftor.io) is a web application that converts animated GIFs into Factorio blueprints. The resulting blueprint creates an animated display using the game's circuit network and lamps. It requires absolutely no mods - works on vanilla Factorio version 2.0 and the Space Age DLC.
 ![example nyan gif](https://github.com/colinchilds/giftorio/blob/main/web/assets/img/nyan.gif?raw=true)
 
 ## Features
@@ -9,8 +9,8 @@ GIFtorio is a web application that converts animated GIFs into Factorio blueprin
 - Automatically downscales GIFs to fit within signal limitations
 - Configurable frame rate and image size
 - Configurable substation quality to reduce dead pixels
-- Maintains animation timing similar to the original GIF
-- Supports different substation qualities when using the Space Exploration DLC
+- Attempts to maintain animation timing similar to the original GIF
+- Supports different substation qualities when using the Space Age DLC
 
 ## Prerequisites
 
@@ -71,7 +71,7 @@ The application:
 - Maximum image size is limited by available signals, but more realistically by in-game performance.
 - Higher resolution images will require more in-game entities and may impact performance
 - Browser must support WebAssembly
-- Longer GIFs can take a really long time to process and may cause the game to lag
+- Longer GIFs can take a really long time to process and may cause the game to lag. We recommend trying keep gifs to only a few seconds. If you have a really long gif, consider using the grayscale option, as it can signficantly reduce blueprint size.
 
 ## Contributing
 
