@@ -326,7 +326,7 @@ export let signals_dlc = [{"name":"wooden-chest"},
 {"type":"virtual","name":"signal-C"},
 {"type":"virtual","name":"signal-D"},
 {"type":"virtual","name":"signal-E"},
-{"type":"virtual","name":"signal-F"},
+// {"type":"virtual","name":"signal-F"},  Removed to not conflict with frame-packed signals (grayscale)
 {"type":"virtual","name":"signal-G"},
 {"type":"virtual","name":"signal-H"},
 {"type":"virtual","name":"signal-I"},

@@ -209,12 +209,80 @@ fn frame_to_sections(
     Ok(sections)
 }
 
-// Generate the timer combinators and associated wires.
-fn generate_timer(stop: u32) -> (Vec<Value>, Vec<Value>) {
+fn pack_grayscale_frames_to_sections(
+    frames: &[DynamicImage],
+    signals_subset: &[Value],
+) -> Result<Vec<Value>, JsValue> {
+    if frames.is_empty() {
+        return Err(JsValue::from_str("No frames provided for packing"));
+    }
+    let (width, height) = frames[0].dimensions();
+    let num_pixels = (width * height) as usize;
+    if num_pixels > signals_subset.len() {
+        return Err(JsValue::from_str(&format!(
+            "Frame pixel count ({}) exceeds available signals ({}).",
+            num_pixels,
+            signals_subset.len()
+        )));
+    }
+    // Convert each frame to Luma8 (grayscale) so that each pixel is one u8.
+    let luma_images: Vec<_> = frames.iter().map(|frame| frame.to_luma8()).collect();
+
+    let mut sections = Vec::with_capacity(num_pixels / 1000 + 1);
+    let mut filters = Vec::with_capacity(1000);
+    let mut filter_index = 1;
+    let mut section_index = 1;
+
+    for i in 0..num_pixels {
+        let mut packed_value: u32 = 0;
+        for (j, img) in luma_images.iter().enumerate() {
+            let pixel_value = img.as_raw()[i];
+            packed_value |= (pixel_value as u32) << (8 * j);
+        }
+        // Convert to a signed 32-bit integer, wrapping if necessary.
+        let signed_value = packed_value as i32;
+
+        let mut filter = serde_json::Map::with_capacity(6);
+        filter.insert("index".to_string(), Value::Number(filter_index.into()));
+        filter.insert("comparator".to_string(), Value::String("=".to_string()));
+        filter.insert("count".to_string(), Value::Number(signed_value.into()));
+        filter.insert("quality".to_string(), Value::String("normal".to_string()));
+        if let Value::Object(map) = &signals_subset[i] {
+            for (k, v) in map {
+                filter.insert(k.clone(), v.clone());
+            }
+        }
+        filters.push(Value::Object(filter));
+
+        if filter_index == 1000 {
+            let mut section = serde_json::Map::with_capacity(2);
+            section.insert("index".to_string(), Value::Number(section_index.into()));
+            section.insert("filters".to_string(), Value::Array(filters));
+            sections.push(Value::Object(section));
+            filters = Vec::with_capacity(1000);
+            section_index += 1;
+            filter_index = 1;
+        } else {
+            filter_index += 1;
+        }
+    }
+
+    if !filters.is_empty() {
+        let mut section = serde_json::Map::with_capacity(2);
+        section.insert("index".to_string(), Value::Number(section_index.into()));
+        section.insert("filters".to_string(), Value::Array(filters));
+        sections.push(Value::Object(section));
+    }
+    Ok(sections)
+}
+
+// Generates a timer that increments once per game tick, 60 times per second. This timer is used to
+// determine which frames to render.
+fn generate_timer(stop: u32, use_grayscale: bool, ticks_per_frame: u32, frames_per_combinator: u32) -> (Vec<Value>, Vec<Value>) {
     let timer_entity1 = json!({
         "entity_number": 1,
         "name": "constant-combinator",
-        "position": {"x": -2.5, "y": -4.0},
+        "position": {"x": -2.5, "y": -3.0},
         "direction": 4,
         "control_behavior": {
             "sections": {
@@ -229,14 +297,6 @@ fn generate_timer(stop: u32) -> (Vec<Value>, Vec<Value>) {
                                 "quality": "normal",
                                 "comparator": "=",
                                 "count": 1
-                            },
-                            {
-                                "index": 2,
-                                "type": "virtual",
-                                "name": "signal-S",
-                                "quality": "normal",
-                                "comparator": "=",
-                                "count": stop
                             }
                         ]
                     }
@@ -247,14 +307,14 @@ fn generate_timer(stop: u32) -> (Vec<Value>, Vec<Value>) {
     let timer_entity2 = json!({
         "entity_number": 2,
         "name": "decider-combinator",
-        "position": {"x": -1.5, "y": -4.0},
+        "position": {"x": -1.5, "y": -3.0},
         "direction": 4,
         "control_behavior": {
             "decider_conditions": {
                 "conditions": [
                     {
                         "first_signal": {"type": "virtual", "name": "signal-T"},
-                        "second_signal": {"type": "virtual", "name": "signal-S"},
+                        "constant": stop,
                         "comparator": "<"
                     }
                 ],
@@ -262,28 +322,87 @@ fn generate_timer(stop: u32) -> (Vec<Value>, Vec<Value>) {
                     {"signal": {"type": "virtual", "name": "signal-T"}}
                 ]
             }
-        }
+        },
+        "player_description": "[virtual-signal=signal-T] is our timer that ticks up 60 times per second up to the max ticks for the entire gif. \
+        When it reaches the max, it will start over, resetting the gif. This timer is used to know which frames to render."
     });
     let timer_entity3 = json!({
         "entity_number": 3,
         "name": "arithmetic-combinator",
-        "position": {"x": -1.5, "y": -3.0},
-        "direction": 12,
-        "control_behavior": {
+        "position": {"x": -1.5, "y": -4.0},
+        "direction": 4,
+         "control_behavior": {
             "arithmetic_conditions": {
                 "first_signal": {"type": "virtual", "name": "signal-T"},
                 "second_constant": 1,
-                "operation": "+",
+                "operation": "-",
                 "output_signal": {"type": "virtual", "name": "signal-T"}
             }
         }
     });
-    let entities = vec![timer_entity1, timer_entity2, timer_entity3];
-    let wires = vec![
-        json!([1, 1, 2, 1]),
-        json!([2, 2, 3, 4]),
-        json!([2, 4, 3, 2]),
+
+    let mut entities = vec![timer_entity1, timer_entity2, timer_entity3];
+    let mut wires = vec![
+        json!([1, 2, 2, 2]),
+        json!([2, 2, 2, 4]),
+        json!([2, 2, 3, 2])
     ];
+
+    if use_grayscale {
+        let timer_entity4 = json!({
+            "entity_number": 4,
+            "name": "arithmetic-combinator",
+            "position": {"x": -1.5, "y": -5.0},
+            "direction": 12,
+            "control_behavior": {
+                "arithmetic_conditions": {
+                    "first_signal": {"type": "virtual", "name": "signal-T"},
+                    "second_constant": ticks_per_frame * frames_per_combinator,
+                    "operation": "%",
+                    "output_signal": {"type": "virtual", "name": "signal-S"}
+                }
+            }
+        });
+        entities.push(timer_entity4);
+
+        let timer_entity5 = json!({
+            "entity_number": 5,
+            "name": "arithmetic-combinator",
+            "position": {"x": -2.5, "y": -5.5},
+            "control_behavior": {
+                "arithmetic_conditions": {
+                    "first_signal": {"type": "virtual", "name": "signal-S"},
+                    "second_constant": ticks_per_frame,
+                    "operation": "/",
+                    "output_signal": {"type": "virtual", "name": "signal-S"}
+                }
+            }
+        });
+        entities.push(timer_entity5);
+
+        let timer_entity6 = json!({
+            "entity_number": 6,
+            "name": "arithmetic-combinator",
+            "position": {"x": -1.5, "y": -6.0},
+            "direction": 4,
+            "control_behavior": {
+                "arithmetic_conditions": {
+                    "first_signal": {"type": "virtual", "name": "signal-S"},
+                    "second_constant": 8,
+                    "operation": "*",
+                    "output_signal": {"type": "virtual", "name": "signal-F"}
+                }
+            },
+            "player_description": "Calculates the bit shift necessary for the frame we should be rendering."
+        });
+        entities.push(timer_entity6);
+
+        wires.push(json!([3, 2, 4, 2]));
+        wires.push(json!([4, 4, 5, 2]));
+        wires.push(json!([5, 4, 6, 2]));
+        wires.push(json!([6, 4, 3, 4]));
+    }
+
     (entities, wires)
 }
 
@@ -372,18 +491,63 @@ fn generate_substations(
 fn generate_frame_combinators(
     frame_sections: &Vec<Vec<Value>>,
     occupied_y: &HashSet<i32>,
-    ticks_per_frame: f64,
+    ticks_per_group: u32,
     base_entity_number: u32,
     base_constant_x: f64,
     base_decider_x: f64,
     base_y: f64,
     max_rows_per_group: u32,
+    use_grayscale: bool,
 ) -> (Vec<Value>, Vec<Value>, u32) {
-    let num_frames = frame_sections.len();
-    let mut new_entities = Vec::with_capacity(num_frames * 2);
-    let mut wires = Vec::with_capacity(num_frames * 3);
-
     let mut current_entity_number = base_entity_number;
+    let num_frames = frame_sections.len();
+    let mut new_entities = Vec::with_capacity(num_frames * 2 + if use_grayscale { 2 } else { 0 });
+    let mut wires = Vec::with_capacity(num_frames * 3 + if use_grayscale { 3 } else { 0 });
+
+    // If it's grayscale, then we need to add two arithmetic combinators to perform the bit masks.
+    if use_grayscale {
+        let shifter1_x = base_decider_x - 0.5;
+        let shifter2_x = shifter1_x + 2.0;
+        let shifter1 = json!({
+            "entity_number": current_entity_number,
+            "name": "arithmetic-combinator",
+            "position": {"x": shifter1_x, "y": base_y + 1.0},
+            "direction": 4,
+             "control_behavior": {
+                "arithmetic_conditions": {
+                    "first_signal": {"type": "virtual", "name": "signal-each"},
+                    "second_signal": {"type": "virtual", "name": "signal-F"},
+                    "operation": ">>",
+                    "output_signal": {"type": "virtual", "name": "signal-each"},
+                    "first_signal_networks": {"red": true, "green": false}
+                }
+            }
+        });
+        new_entities.push(shifter1);
+        // Connect wire to the first decider combinator in the group
+        wires.push(json!([current_entity_number, 2, current_entity_number + 3, 2]));
+        wires.push(json!([current_entity_number, 1, current_entity_number + 3, 3]));
+        current_entity_number += 1;
+
+        let shifter2 = json!({
+            "entity_number": current_entity_number,
+            "name": "arithmetic-combinator",
+            "position": {"x": shifter2_x, "y": base_y + 1.0},
+            "direction": 4,
+             "control_behavior": {
+                "arithmetic_conditions": {
+                    "first_signal": {"type": "virtual", "name": "signal-each"},
+                    "second_constant": 255,
+                    "operation": "AND",
+                    "output_signal": {"type": "virtual", "name": "signal-each"}
+                }
+            }
+        });
+        wires.push(json!([current_entity_number - 1, 4, current_entity_number, 2]));
+        new_entities.push(shifter2);
+        current_entity_number += 1;
+    }
+
     let mut first_decider = true;
     let mut x_offset = 0.0;
     let mut y_offset = 0.0;
@@ -410,8 +574,8 @@ fn generate_frame_combinators(
                 }
             }
         });
-        let lower_bound = (i as u32) * (ticks_per_frame as u32);
-        let upper_bound = ((i as u32) + 1) * (ticks_per_frame as u32);
+        let lower_bound = (i as u32) * ticks_per_group;
+        let upper_bound = (i as u32 + 1) * ticks_per_group;
 
         let decider_entity = json!({
             "entity_number": decider_num,
@@ -434,7 +598,10 @@ fn generate_frame_combinators(
                         }
                     ],
                     "outputs": [
-                        {"signal": {"type": "virtual", "name": "signal-everything"}}
+                        {
+                            "signal": {"type": "virtual", "name": "signal-everything"},
+                            "networks": {"red": true, "green": false}
+                        },
                     ]
                 }
             }
@@ -484,6 +651,7 @@ fn generate_lamps(
     start_entity_number: u32,
     start_x: i32,
     start_y: i32,
+    use_grayscale: bool,
 ) -> (Vec<Value>, Vec<Value>, u32, u32) {
     let mut lamp_entities = Vec::new();
     let mut lamp_wires = Vec::new();
@@ -498,15 +666,26 @@ fn generate_lamps(
                 continue;
             }
             let index = (r as u32 * grid_width + c as u32) as usize;
+            let colors = if use_grayscale {
+                json!({
+                    "use_colors": true,
+                    "color_mode": 1,
+                    "red_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
+                    "green_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
+                    "blue_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
+                })
+            } else {
+                json!({
+                    "use_colors": true,
+                    "color_mode": 2,
+                    "rgb_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
+                })
+            };
             let lamp = json!({
                 "entity_number": current_entity,
                 "name": "small-lamp",
                 "position": {"x": x, "y": y},
-                "control_behavior": {
-                    "use_colors": true,
-                    "rgb_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
-                    "color_mode": 2
-                },
+                "control_behavior": colors,
                 "always_on": true
             });
             lamp_entities.push(lamp);
@@ -532,6 +711,7 @@ pub fn update_full_blueprint(
     fps: u32,
     sampled_frames: Vec<DynamicImage>,
     use_dlc: bool,
+    use_grayscale: bool,
     signals: Vec<Value>,
     substation_quality: &str,
 ) -> Result<Value, JsValue> {
@@ -568,10 +748,13 @@ pub fn update_full_blueprint(
     }
     let max_rows_per_group =
         (total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil() as u32;
+    let max_rows_per_group = if use_grayscale { (max_rows_per_group as f64 / 4.0).ceil() as u32 } else { max_rows_per_group };
 
-    let ticks_per_frame = 60.0 / fps as f64;
-    let stop = total_frames * ticks_per_frame as u32;
-    let (timer_entities, timer_wires) = generate_timer(stop);
+    let ticks_per_frame = (60.0 / fps as f64) as u32;
+    let frames_per_combinator = if use_grayscale { 4 } else { 1 };
+    let stop = total_frames * ticks_per_frame;
+    let (timer_entities, timer_wires) = generate_timer(stop, use_grayscale, ticks_per_frame, frames_per_combinator);
+
     let mut all_entities = timer_entities;
     let mut all_wires: Vec<Value> = timer_wires;
     let mut next_entity = all_entities
@@ -604,28 +787,43 @@ pub fn update_full_blueprint(
             .take((group_width * full_height) as usize)
             .collect();
 
-        let mut group_frames_sections = Vec::new();
-        for frame in &sampled_frames {
-            let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-            let sections = frame_to_sections(&cropped, &signals_subset)?;
-            group_frames_sections.push(sections);
-        }
+        let group_frames_sections = if use_grayscale {
+            sampled_frames
+                .chunks(4)
+                .map(|chunk| {
+                    let cropped_frames: Vec<DynamicImage> = chunk
+                        .iter()
+                        .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
+                        .collect();
+                    pack_grayscale_frames_to_sections(&cropped_frames, &signals_subset)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            let mut sections = Vec::new();
+            for frame in &sampled_frames {
+                let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
+                sections.push(frame_to_sections(&cropped, &signals_subset)?);
+            }
+            sections
+        };
+
         let group_offset_x = group_index * max_columns_per_group;
-        let first_connection_entity = next_entity + 1;
+        let first_connection_entity = if use_grayscale { next_entity } else { next_entity + 1 };
         let (group_combinators, mut group_comb_wires, new_next_entity) =
             generate_frame_combinators(
                 &group_frames_sections,
                 &substation_occupied_y,
-                ticks_per_frame,
+                ticks_per_frame * frames_per_combinator,
                 next_entity,
                 group_offset_x as f64 + 0.5,
                 group_offset_x as f64 + 1.5,
-                -3.0,
-                max_rows_per_group, // new parameter
+                if use_grayscale { -4.0 } else { -3.0 },
+                max_rows_per_group,
+                use_grayscale,
             );
         // If it's the first one, connect it to the timer
         if group_index == 0 {
-            group_comb_wires.push(json!([2, 4, first_connection_entity, 2]));
+            group_comb_wires.push(json!([3, 4, first_connection_entity, 2]));
         }
         next_entity = new_next_entity;
 
@@ -639,11 +837,17 @@ pub fn update_full_blueprint(
             next_entity,
             group_offset_x as i32,
             0,
+            use_grayscale,
         );
         next_entity = new_next_entity;
 
-        group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
-        group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
+        if use_grayscale {
+            group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
+            group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity + 1, 3]));
+        } else {
+            group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
+            group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
+        }
 
         if let Some(prev) = previous_top_right_lamp {
             group_lamp_wires.push(json!([first_lamp_entity, 2, prev, 2]));
@@ -727,7 +931,7 @@ pub fn run_blueprint(
     }
     // Build the complete blueprint.
     let blueprint_json =
-        update_full_blueprint(fps, frames, use_dlc, signals, substation_quality)?;
+        update_full_blueprint(fps, frames, use_dlc, use_grayscale, signals, substation_quality)?;
     // Encode the blueprint as a Factorio blueprint string.
     let blueprint_str = encode_blueprint(&blueprint_json)?;
     Ok(blueprint_str)
