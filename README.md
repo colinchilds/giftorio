@@ -1,10 +1,7 @@
 # GIFtorio
 
 GIFtorio is a web application that converts animated GIFs into Factorio blueprints. The resulting blueprint creates an animated display using the game's circuit network and lamp display system.
-
-## Description
-
-This tool takes an animated GIF and converts it into a Factorio blueprint string that you can import into the game. The blueprint creates a setup of combinators and lamps that will display your GIF as an animated pixel display in-game.
+![example nyan gif](https://github.com/colinchilds/giftorio/blob/main/web/assets/img/nyan.gif?raw=true)
 
 ## Features
 
@@ -13,15 +10,15 @@ This tool takes an animated GIF and converts it into a Factorio blueprint string
 - Configurable frame rate and image size
 - Configurable substation quality to reduce dead pixels
 - Maintains animation timing similar to the original GIF
-- Supports different substation qualities when using Space Exploration
+- Supports different substation qualities when using the Space Exploration DLC
 
 ## Prerequisites
 
 For development:
 - Rust (latest stable version)
+- Node (latest LTS version)
 - wasm-pack (`cargo install wasm-pack`)
 - A web browser with WebAssembly support
-- Python 3.x (for local development server)
 
 ## Development Setup
 
