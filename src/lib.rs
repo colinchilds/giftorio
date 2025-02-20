@@ -797,7 +797,7 @@ pub fn update_full_blueprint(
             substation_quality,
             full_width,
             full_height,
-            max_rows_per_group,
+            max_rows_per_group + if grayscale_bits == 4 { 2 } else if grayscale_bits == 8 { 1 } else { 0},
             next_entity,
         );
     next_entity = next_entity_new;
