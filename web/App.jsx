@@ -150,7 +150,7 @@ function App() {
   return (
     <>
     <Background />
-    <div class="flex items-center justify-center min-h-screen">
+    <div class="flex flex-col items-center justify-center min-h-screen">
       <div 
         classList={{
           "opacity-0": !toast().show,
@@ -312,8 +312,7 @@ function App() {
         {/* Blueprint Status Section */}
         <div ref={el => formRefs.blueprintStatus = el} 
              classList={{hidden: !isGenerating()}} 
-             class="panel p-6 rounded shadow-md w-full max-w-md min-w-[384px]">
-          <h2 ref={el => formRefs.blueprintTitle = el} id="blueprintTitle" class="text-tan-500 text-xl font-bold mb-2"></h2>
+             class="panel w-full max-w-md min-w-[384px]">
           <div ref={el => formRefs.progressContainer = el} id="progressContainer">
             <div class="w-full bg-dark-gray-500 rounded-full h-4 mb-2">
               <div ref={el => formRefs.progressBar = el} id="progressBar" class="bg-green-500 h-4 rounded-full" style="width: 0%"></div>
@@ -321,7 +320,12 @@ function App() {
             <p ref={el => formRefs.progressStatus = el} id="progressStatus" class="text-tan-500">Starting...</p>
           </div>
           <div ref={el => formRefs.blueprintResult = el} id="blueprintResult" classList={{hidden: !isGenerating()}}>
-            <div ref={el => formRefs.responseText = el} id="responseText" class="panel-inset-light text-gray-100 p-3 border rounded overflow-auto max-h-64 mb-6"></div>
+            <h2 class="text-tan-500">Blueprint</h2>
+            <div 
+              ref={el => formRefs.responseText = el} 
+              id="responseText" 
+              class="panel-inset-light text-gray-100 p-3 border rounded mb-6 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all h-32"
+            ></div>
             <div class="flex items-center justify-between">
               <button onClick={() => setIsGenerating(false)} id="backButton" class="button">
                 Back
@@ -330,9 +334,28 @@ function App() {
                 Copy
               </button>
             </div>
+            <div class="mt-6 text-center text-white-500">
+              <p>Liking GIFtorio? Consider <a 
+                href="https://www.buymeacoffee.com/colinchilds" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                class="text-bright-green-500 hover:text-tan-500"
+              >a small donation</a> to help with development costs!</p>
+            </div>
           </div>
         </div>
       </div>
+
+      <footer class="fixed bottom-8 w-full gap-8 text-center text-gray-300">
+        <a href="https://github.com/colinchilds/giftorio" class="pr-8"  target="_blank" rel="noopener noreferrer">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="1em" height="1em" fill="currentColor" class="inline-block align-middle mr-1.5"><path d="M15 3C8.373 3 3 8.373 3 15c0 5.623 3.872 10.328 9.092 11.63a1.8 1.8 0 0 1-.092-.583v-2.051h-1.508c-.821 0-1.551-.353-1.905-1.009-.393-.729-.461-1.844-1.435-2.526-.289-.227-.069-.486.264-.451.615.174 1.125.596 1.605 1.222.478.627.703.769 1.596.769.433 0 1.081-.025 1.691-.121.328-.833.895-1.6 1.588-1.962-3.996-.411-5.903-2.399-5.903-5.098 0-1.162.495-2.286 1.336-3.233-.276-.94-.623-2.857.106-3.587 1.798 0 2.885 1.166 3.146 1.481A9 9 0 0 1 15.495 9c1.036 0 2.024.174 2.922.483C18.675 9.17 19.763 8 21.565 8c.732.731.381 2.656.102 3.594.836.945 1.328 2.066 1.328 3.226 0 2.697-1.904 4.684-5.894 5.097C18.199 20.49 19 22.1 19 23.313v2.734c0 .104-.023.179-.035.268C23.641 24.676 27 20.236 27 15c0-6.627-5.373-12-12-12"></path></svg>
+          <span class="align-middle">Contribute or report an issue</span>
+        </a>
+        <a href="https://www.buymeacoffee.com/colinchilds" target="_blank" rel="noopener noreferrer">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" class="inline-block align-middle mr-1.5"><path d="M23.881 8.948c-.773-4.085-4.859-4.593-4.859-4.593H.723c-.604 0-.679.798-.679.798s-.082 7.324-.022 11.822c.164 2.424 2.586 2.672 2.586 2.672s8.267-.023 11.966-.049c2.438-.426 2.683-2.566 2.658-3.734 4.352.24 7.422-2.831 6.649-6.916m-11.062 3.511c-1.246 1.453-4.011 3.976-4.011 3.976s-.121.119-.31.023c-.076-.057-.108-.09-.108-.09-.443-.441-3.368-3.049-4.034-3.954-.709-.965-1.041-2.7-.091-3.71.951-1.01 3.005-1.086 4.363.407 0 0 1.565-1.782 3.468-.963s1.832 3.011.723 4.311m6.173.478c-.928.116-1.682.028-1.682.028V7.284h1.77s1.971.551 1.971 2.638c0 1.913-.985 2.667-2.059 3.015"></path></svg>
+          <span class="align-middle">Support</span>
+          </a>
+        </footer>
     </div>
     </>
   );
