@@ -207,3 +207,33 @@ input[type=file]::file-selector-button:hover {
 input[type=checkbox]:checked~.checkbox {
     background-color: var(--color-orange-500);
 }
+
+.tooltip-trigger {
+    vertical-align: middle;
+    position: relative;
+}
+
+.tooltip {
+    @apply invisible fixed bg-dark-gray-500 text-white-500 text-sm p-2 z-50;
+    width: max-content;
+    max-width: 300px;
+    pointer-events: none;
+    box-shadow:
+            inset 2px 0px 2px 0px #201a16,
+            inset -4px -3px 4px -2px #000,
+            inset 0px 4px 3px -2px #776a57,
+            0px 0px 4px 1px #2e2521;
+}
+
+.tooltip::after {
+    display: none;
+}
+
+.tooltip-trigger:hover + .tooltip {
+    visibility: visible;
+}
+
+/* Make sure the tooltip stays visible when hovering over it */
+.tooltip:hover {
+    visibility: visible;
+}

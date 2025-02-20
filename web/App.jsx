@@ -1,6 +1,7 @@
-import { createSignal, onMount } from 'solid-js';
+import { createSignal, onMount, createEffect } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import Background from './Background';
+import infoIcon from "./assets/img/info.png";
 
 // Constants
 const INITIAL_VALUES = {
@@ -147,6 +148,37 @@ function App() {
       form.style.top = `${bounds.top}px`;
   });
 
+  createEffect(() => {
+    const triggers = document.querySelectorAll('.tooltip-trigger');
+    
+    triggers.forEach(trigger => {
+      trigger.addEventListener('mousemove', (e) => {
+        const tooltip = trigger.nextElementSibling;
+        const rect = trigger.getBoundingClientRect();
+        
+        const vpWidth = window.innerWidth;
+        const vpHeight = window.innerHeight;
+        const tooltipRect = tooltip.getBoundingClientRect();
+        
+        let x = e.clientX + 10;
+        let y = e.clientY + 10;
+        
+        // Check if tooltip would go off-screen to the right
+        if (x + tooltipRect.width > vpWidth) {
+          x = e.clientX - tooltipRect.width - 10;
+        }
+        
+        // Check if tooltip would go off-screen at the bottom
+        if (y + tooltipRect.height > vpHeight) {
+          y = e.clientY - tooltipRect.height - 10;
+        }
+        
+        tooltip.style.left = `${x}px`;
+        tooltip.style.top = `${y}px`;
+      });
+    });
+  });
+
   return (
     <>
     <Background />
@@ -200,7 +232,13 @@ function App() {
 
             {/* Max Size Input */}
             <div class="mb-4">
-              <label class="block text-white-500 mb-2" for="maxsize">Max Width</label>
+              <label class="block text-white-500 mb-2" for="maxsize">
+                Max Size
+                <img src={infoIcon} class="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                <span class="tooltip">
+                  Maximum size of the longest size (length or width) of the output in tiles. Larger values create bigger blueprints but take longer to generate and may have a negative impact on game performance.
+                </span>
+              </label>
               <input
                 ref={el => formRefs.maxsize = el}
                 class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
@@ -248,18 +286,25 @@ function App() {
                   checked={formData.useDLC}
                   onChange={e => setFormData("useDLC", e.currentTarget.checked)} />
                 <div class="checkbox"></div>
-                <div class="ml-4 text-white-500">Use Space Age DLC?</div>
+                <div class="ml-4 text-white-500">
+                  Use Space Age DLC?
+                  <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                  <span className="tooltip">
+                  If enabled, this can increase the number of available signals and substations, reducing the number of combinators
+                    needed in the blueprint. It also allows for higher quality substations.
+                </span>
+                </div>
               </label>
             </div>
 
             {/* Substation Quality Select */}
             <div class="mb-4">
               <label class="block text-white-500 mb-2" for="substationQuality">Substation Quality</label>
-              <select 
-                ref={el => formRefs.substationQuality = el}
-                id="substationQuality" 
-                name="substationQuality" 
-                class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+              <select
+                  ref={el => formRefs.substationQuality = el}
+                  id="substationQuality"
+                  name="substationQuality"
+                  class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
                 value={formData.substationQuality}
                 onChange={e => setFormData("substationQuality", e.currentTarget.value)}
               >
@@ -278,28 +323,43 @@ function App() {
 
             {/* Framerate Input */}
             <div class="mb-4">
-              <label class="block text-white-500 mb-2" for="framerate">Framerate</label>
+              <label className="block text-white-500 mb-2" htmlFor="framerate">
+                Framerate
+                <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                <span className="tooltip">
+                  Maximum framerate of the output blueprint. The blueprint will not exceed the original framerate of the GIF.
+                  The higher the framerate, the more frames will be generated, increasing the size of the blueprint and impacting game performance.
+                </span>
+              </label>
               <input
-                ref={el => formRefs.framerate = el}
-                class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
-                type="number"
-                id="framerate"
-                value={formData.targetFps}
-                onChange={e => setFormData('targetFps', e.target.value)}
-                placeholder="Enter max framerate (won't exceed original)"
+                  ref={el => formRefs.framerate = el}
+                  class="bg-gray-100 focus:bg-tan-500 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+                  type="number"
+                  id="framerate"
+                  value={formData.targetFps}
+                  onChange={e => setFormData('targetFps', e.target.value)}
+                  placeholder="Enter max framerate (won't exceed original)"
               />
             </div>
 
             {/* Color Mode */}
             <div class="mb-4">
-              <label class="block text-white-500 mb-2" for="grayscaleBits">Color Mode</label>
-              <select 
-                ref={el => formRefs.grayscaleBits = el}
-                id="grayscaleBits" 
-                name="grayscaleBits" 
-                class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
-                value={formData.grayscaleBits}
-                onChange={e => setFormData("grayscaleBits", parseInt(e.currentTarget.value))}
+              <label class="block text-white-500 mb-2" for="grayscaleBits">
+                Color Mode
+                <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                <span className="tooltip">
+                  Full color will try to match the original gif colors. If the blueprint is too large, you can try using grayscale.
+                  8-bit grayscale has 256 shades of gray and can reduce the blueprint size by 60-70%, while 4-bit grayscale has 16 shades of gray
+                  and can reduce the blueprint size by up to 85%.
+                </span>
+              </label>
+              <select
+                  ref={el => formRefs.grayscaleBits = el}
+                  id="grayscaleBits"
+                  name="grayscaleBits"
+                  class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+                  value={formData.grayscaleBits}
+                  onChange={e => setFormData("grayscaleBits", parseInt(e.currentTarget.value))}
               >
                 <option value="0">Full Color</option>
                 <option value="8">8-bit Grayscale (256 shades)</option>
