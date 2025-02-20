@@ -236,7 +236,7 @@ function App() {
                 Max Size
                 <img src={infoIcon} class="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
                 <span class="tooltip">
-                  Maximum size of the longest size (length or width) of the output in tiles. Larger values create bigger blueprints but take longer to generate and may have a negative impact on game performance.
+                  Maximum size of the longest side (length or width) of the output image in tiles. Larger values create bigger blueprints but take longer to generate and may have a negative impact on game performance.
                 </span>
               </label>
               <input
@@ -348,7 +348,7 @@ function App() {
                 Color Mode
                 <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
                 <span className="tooltip">
-                  Full color will try to match the original gif colors. If the blueprint is too large, you can try using grayscale.
+                  Full color will try to match the original GIF colors. If the blueprint is too large, you can try using grayscale.
                   8-bit grayscale has 256 shades of gray and can reduce the blueprint size by 60-70%, while 4-bit grayscale has 16 shades of gray
                   and can reduce the blueprint size by up to 85%.
                 </span>
