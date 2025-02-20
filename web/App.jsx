@@ -78,6 +78,10 @@ function App() {
     formRefs.progressContainer.classList.remove("hidden");
     formRefs.blueprintResult.classList.add("hidden");
     setProgress({ percentage: 0, status: 'Starting...' });
+    
+    // Reset progress bar and status text explicitly
+    formRefs.progressBar.style.width = '0%';
+    formRefs.progressStatus.textContent = 'Starting...';
 
     if (!formData.file) {
       setToast({ show: true, message: 'Please select a file', isError: true });
