@@ -10,7 +10,7 @@ const INITIAL_VALUES = {
   useDLC: false,
   substationQualities: ['none', 'normal', 'uncommon', 'rare', 'epic', 'legendary'],
   substationQuality: 'normal',
-  useGrayscale: false,
+  grayscaleBits: 0,
 };
 
 function App() {
@@ -103,7 +103,7 @@ function App() {
         maxSize: formData.maxSize,
         useDLC: formData.useDLC,
         substationQuality: formData.substationQuality,
-        useGrayscale: formData.useGrayscale,
+        grayscaleBits: formData.grayscaleBits,
       });
     } catch (err) {
       console.error('Failed to process file:', err);
@@ -286,18 +286,21 @@ function App() {
               />
             </div>
 
-            {/* Use grayscale */}
-            <div class="mb-4 flex">
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  class="sr-only"
-                  checked={formData.useGrayscale}
-                  onChange={e => setFormData("useGrayscale", e.currentTarget.checked)}
-                />
-                <div class="checkbox"></div>
-                <div class="ml-4 text-white-500">Convert to Grayscale</div>
-              </label>
+            {/* Color Mode */}
+            <div class="mb-4">
+              <label class="block text-white-500 mb-2" for="grayscaleBits">Color Mode</label>
+              <select 
+                ref={el => formRefs.grayscaleBits = el}
+                id="grayscaleBits" 
+                name="grayscaleBits" 
+                class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+                value={formData.grayscaleBits}
+                onChange={e => setFormData("grayscaleBits", parseInt(e.currentTarget.value))}
+              >
+                <option value="0">Full Color</option>
+                <option value="8">8-bit Grayscale (256 shades)</option>
+                <option value="4">4-bit Grayscale (16 shades)</option>
+              </select>
             </div>
           </div>
         </div>
@@ -305,7 +308,7 @@ function App() {
         {/* Blueprint Status Section */}
         <div ref={el => formRefs.blueprintStatus = el} 
              classList={{hidden: !isGenerating()}} 
-             class="panel p-6 rounded shadow-md w-full max-w-md">
+             class="panel p-6 rounded shadow-md w-full max-w-md min-w-[384px]">
           <h2 ref={el => formRefs.blueprintTitle = el} id="blueprintTitle" class="text-tan-500 text-xl font-bold mb-2"></h2>
           <div ref={el => formRefs.progressContainer = el} id="progressContainer">
             <div class="w-full bg-dark-gray-500 rounded-full h-4 mb-2">

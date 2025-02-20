@@ -64,7 +64,7 @@ pub fn process_gif(
     gif_data: &[u8],
     max_size: u32,
     target_fps: u32,
-    use_grayscale: bool,
+    grayscale_bits: u32,
 ) -> Result<(Vec<DynamicImage>, u32), JsValue> {
     // --- First Pass: Decode and collect durations ---
     let cursor = std::io::Cursor::new(gif_data);
@@ -116,7 +116,8 @@ pub fn process_gif(
         .map(|&i| {
             let frame = &frame_vec[i];
             let mut img = DynamicImage::ImageRgba8(frame.clone().into_buffer());
-            if use_grayscale {
+            
+            if grayscale_bits > 0 {
                 img = DynamicImage::ImageLuma8(img.to_luma8());
             }
             let (width, height) = img.dimensions();
@@ -212,6 +213,7 @@ fn frame_to_sections(
 fn pack_grayscale_frames_to_sections(
     frames: &[DynamicImage],
     signals_subset: &[Value],
+    grayscale_bits: u32,
 ) -> Result<Vec<Value>, JsValue> {
     if frames.is_empty() {
         return Err(JsValue::from_str("No frames provided for packing"));
@@ -237,7 +239,12 @@ fn pack_grayscale_frames_to_sections(
         let mut packed_value: u32 = 0;
         for (j, img) in luma_images.iter().enumerate() {
             let pixel_value = img.as_raw()[i];
-            packed_value |= (pixel_value as u32) << (8 * j);
+            if grayscale_bits == 4 {
+                let four_bit = pixel_value >> 4;
+                packed_value |= (four_bit as u32) << (4 * j);
+            } else if grayscale_bits == 8 {
+                packed_value |= (pixel_value as u32) << (8 * j);
+            }
         }
         // Convert to a signed 32-bit integer, wrapping if necessary.
         let signed_value = packed_value as i32;
@@ -278,7 +285,7 @@ fn pack_grayscale_frames_to_sections(
 
 // Generates a timer that increments once per game tick, 60 times per second. This timer is used to
 // determine which frames to render.
-fn generate_timer(stop: u32, use_grayscale: bool, ticks_per_frame: u32, frames_per_combinator: u32) -> (Vec<Value>, Vec<Value>) {
+fn generate_timer(stop: u32, grayscale_bits: u32, ticks_per_frame: u32, frames_per_combinator: u32) -> (Vec<Value>, Vec<Value>) {
     let timer_entity1 = json!({
         "entity_number": 1,
         "name": "constant-combinator",
@@ -348,7 +355,7 @@ fn generate_timer(stop: u32, use_grayscale: bool, ticks_per_frame: u32, frames_p
         json!([2, 2, 3, 2])
     ];
 
-    if use_grayscale {
+    if grayscale_bits > 0 {
         let timer_entity4 = json!({
             "entity_number": 4,
             "name": "arithmetic-combinator",
@@ -388,7 +395,7 @@ fn generate_timer(stop: u32, use_grayscale: bool, ticks_per_frame: u32, frames_p
             "control_behavior": {
                 "arithmetic_conditions": {
                     "first_signal": {"type": "virtual", "name": "signal-S"},
-                    "second_constant": 8,
+                    "second_constant": grayscale_bits,
                     "operation": "*",
                     "output_signal": {"type": "virtual", "name": "signal-F"}
                 }
@@ -497,15 +504,15 @@ fn generate_frame_combinators(
     base_decider_x: f64,
     base_y: f64,
     max_rows_per_group: u32,
-    use_grayscale: bool,
+    grayscale_bits: u32,
 ) -> (Vec<Value>, Vec<Value>, u32) {
     let mut current_entity_number = base_entity_number;
     let num_frames = frame_sections.len();
-    let mut new_entities = Vec::with_capacity(num_frames * 2 + if use_grayscale { 2 } else { 0 });
-    let mut wires = Vec::with_capacity(num_frames * 3 + if use_grayscale { 3 } else { 0 });
+    let mut new_entities = Vec::with_capacity(num_frames * 2 + 3); // 2 needed for 8 bit grayscale, 3 for 4 bit
+    let mut wires = Vec::with_capacity((num_frames * 3) + 4); // Add 4 for grayscale
 
     // If it's grayscale, then we need to add two arithmetic combinators to perform the bit masks.
-    if use_grayscale {
+    if grayscale_bits > 0 {
         let shifter1_x = base_decider_x - 0.5;
         let shifter2_x = shifter1_x + 2.0;
         let shifter1 = json!({
@@ -525,8 +532,9 @@ fn generate_frame_combinators(
         });
         new_entities.push(shifter1);
         // Connect wire to the first decider combinator in the group
-        wires.push(json!([current_entity_number, 2, current_entity_number + 3, 2]));
-        wires.push(json!([current_entity_number, 1, current_entity_number + 3, 3]));
+        let first_decider_id = current_entity_number + if grayscale_bits == 4 { 4 } else { 3 };
+        wires.push(json!([current_entity_number, 2, first_decider_id, 2]));
+        wires.push(json!([current_entity_number, 1, first_decider_id, 3]));
         current_entity_number += 1;
 
         let shifter2 = json!({
@@ -537,7 +545,7 @@ fn generate_frame_combinators(
              "control_behavior": {
                 "arithmetic_conditions": {
                     "first_signal": {"type": "virtual", "name": "signal-each"},
-                    "second_constant": 255,
+                    "second_constant": if grayscale_bits == 4 { 15 } else { 255 },
                     "operation": "AND",
                     "output_signal": {"type": "virtual", "name": "signal-each"}
                 }
@@ -546,6 +554,26 @@ fn generate_frame_combinators(
         wires.push(json!([current_entity_number - 1, 4, current_entity_number, 2]));
         new_entities.push(shifter2);
         current_entity_number += 1;
+
+        if grayscale_bits == 4 {
+            let shifter3 = json!({
+                "entity_number": current_entity_number,
+                "name": "arithmetic-combinator",
+                "position": {"x": shifter1_x + 1.0, "y": base_y + 2.0},
+                "direction": 12,
+                 "control_behavior": {
+                    "arithmetic_conditions": {
+                        "first_signal": {"type": "virtual", "name": "signal-each"},
+                        "second_constant": 17,
+                        "operation": "*",
+                        "output_signal": {"type": "virtual", "name": "signal-each"}
+                    }
+                }
+            });
+            wires.push(json!([current_entity_number - 1, 4, current_entity_number, 2]));
+            new_entities.push(shifter3);
+            current_entity_number += 1;
+        }
     }
 
     let mut first_decider = true;
@@ -711,7 +739,7 @@ pub fn update_full_blueprint(
     fps: u32,
     sampled_frames: Vec<DynamicImage>,
     use_dlc: bool,
-    use_grayscale: bool,
+    grayscale_bits: u32,
     signals: Vec<Value>,
     substation_quality: &str,
 ) -> Result<Value, JsValue> {
@@ -735,7 +763,9 @@ pub fn update_full_blueprint(
         }
     });
 
+    let use_grayscale = grayscale_bits > 0;
     let total_frames = sampled_frames.len() as u32;
+    let frames_per_combinator = if grayscale_bits > 0 { 32 / grayscale_bits } else { 1 };
     let (full_width, full_height) = sampled_frames[0].dimensions();
     let max_columns_per_group = ((signals.len() as u32) / full_height).min(full_width);
     let num_groups = (full_width as f64 / max_columns_per_group as f64).ceil() as u32;
@@ -747,13 +777,11 @@ pub fn update_full_blueprint(
         ));
     }
     let max_rows_per_group =
-        (total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil() as u32;
-    let max_rows_per_group = if use_grayscale { (max_rows_per_group as f64 / 4.0).ceil() as u32 } else { max_rows_per_group };
+        (((total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil()) / frames_per_combinator as f64).ceil() as u32;
 
     let ticks_per_frame = (60.0 / fps as f64) as u32;
-    let frames_per_combinator = if use_grayscale { 4 } else { 1 };
     let stop = total_frames * ticks_per_frame;
-    let (timer_entities, timer_wires) = generate_timer(stop, use_grayscale, ticks_per_frame, frames_per_combinator);
+    let (timer_entities, timer_wires) = generate_timer(stop, grayscale_bits, ticks_per_frame, frames_per_combinator);
 
     let mut all_entities = timer_entities;
     let mut all_wires: Vec<Value> = timer_wires;
@@ -789,13 +817,13 @@ pub fn update_full_blueprint(
 
         let group_frames_sections = if use_grayscale {
             sampled_frames
-                .chunks(4)
+                .chunks(frames_per_combinator as usize)
                 .map(|chunk| {
                     let cropped_frames: Vec<DynamicImage> = chunk
                         .iter()
                         .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
                         .collect();
-                    pack_grayscale_frames_to_sections(&cropped_frames, &signals_subset)
+                    pack_grayscale_frames_to_sections(&cropped_frames, &signals_subset, grayscale_bits)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
@@ -817,9 +845,9 @@ pub fn update_full_blueprint(
                 next_entity,
                 group_offset_x as f64 + 0.5,
                 group_offset_x as f64 + 1.5,
-                if use_grayscale { -4.0 } else { -3.0 },
+                if grayscale_bits == 4 { -5.0 } else if grayscale_bits == 8 { -4.0 } else { -3.0 },
                 max_rows_per_group,
-                use_grayscale,
+                grayscale_bits,
             );
         // If it's the first one, connect it to the timer
         if group_index == 0 {
@@ -843,7 +871,8 @@ pub fn update_full_blueprint(
 
         if use_grayscale {
             group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
-            group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity + 1, 3]));
+            let last_shifter = if grayscale_bits == 4 { first_connection_entity + 2 } else { first_connection_entity + 1 };
+            group_comb_wires.push(json!([first_lamp_entity, 1, last_shifter, 3]));
         } else {
             group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
             group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
@@ -920,18 +949,18 @@ pub fn run_blueprint(
     target_fps: u32,
     max_size: u32,
     substation_quality: &str,
-    use_grayscale: bool,
+    grayscale_bits: u32,
 ) -> Result<String, JsValue> {
     // Parse available signals.
     let signals: Vec<Value> = serde_json::from_str(signals_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse signals JSON: {}", e)))?;
-    let (frames, fps) = process_gif(gif_data, max_size, target_fps, use_grayscale)?;
+    let (frames, fps) = process_gif(gif_data, max_size, target_fps, grayscale_bits)?;
     if frames.is_empty() {
         return Err(JsValue::from_str("No frames sampled!"));
     }
     // Build the complete blueprint.
     let blueprint_json =
-        update_full_blueprint(fps, frames, use_dlc, use_grayscale, signals, substation_quality)?;
+        update_full_blueprint(fps, frames, use_dlc, grayscale_bits, signals, substation_quality)?;
     // Encode the blueprint as a Factorio blueprint string.
     let blueprint_str = encode_blueprint(&blueprint_json)?;
     Ok(blueprint_str)
