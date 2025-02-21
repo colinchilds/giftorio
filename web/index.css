@@ -237,3 +237,36 @@ input[type=checkbox]:checked~.checkbox {
 .tooltip:hover {
     visibility: visible;
 }
+
+.mobile-warning {
+  @apply fixed top-0 left-0 right-0 bg-orange-500 text-black p-4 text-center z-50;
+  box-shadow: inset 8px 0px 4px -8px #000,
+              inset -8px 0px 4px -8px #000,
+              inset 0px 10px 2px -8px #2e2521,
+              inset 0px 10px 2px -8px #163218,
+              inset 0px -9px 2px -8px #000,
+              0px 0px 4px 0px #000;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .panel-container {
+    @apply flex-col w-[95%] max-w-[95%];
+  }
+
+  .panel {
+    @apply w-full max-w-full min-w-0 mb-4;
+  }
+
+  .button, .button-green, .button-green-right {
+    @apply min-w-[100px];
+  }
+
+  footer {
+    @apply flex flex-col items-center gap-4 pb-4;
+  }
+
+  footer a {
+    @apply pr-0;
+  }
+}

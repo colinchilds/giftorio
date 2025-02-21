@@ -25,6 +25,7 @@ function App() {
   const [xOffset, setXOffset] = createSignal(0);
   const [yOffset, setYOffset] = createSignal(0);
   const [showAdvanced, setShowAdvanced] = createSignal(false);
+  const [isMobile, setIsMobile] = createSignal(false);
   let form;
 
   // Worker setup
@@ -142,10 +143,16 @@ function App() {
   });
 
   onMount(() => {
-      const bounds = form.getBoundingClientRect();
-      form.style.position = 'absolute';
-      form.style.left = `${bounds.left}px`;
-      form.style.top = `${bounds.top}px`;
+    // Check if device is mobile
+    setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', () => {
+      setIsMobile(window.innerWidth <= 768);
+    });
+
+    const bounds = form.getBoundingClientRect();
+    form.style.position = 'absolute';
+    form.style.left = `${bounds.left}px`;
+    form.style.top = `${bounds.top}px`;
   });
 
   createEffect(() => {
@@ -182,6 +189,11 @@ function App() {
   return (
     <>
     <Background />
+    {isMobile() && (
+      <div class="mobile-warning">
+        ⚠️ GIFtorio works best on desktop devices. Some features may be limited on mobile.
+      </div>
+    )}
     <div class="flex flex-col items-center justify-center min-h-screen">
       <div 
         classList={{
