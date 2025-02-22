@@ -239,7 +239,11 @@ fn pack_grayscale_frames_to_sections(
         let mut packed_value: u32 = 0;
         for (j, img) in luma_images.iter().enumerate() {
             let pixel_value = img.as_raw()[i];
-            if grayscale_bits == 4 {
+            if grayscale_bits == 1 {
+                // Convert to binary (0 or 1) based on threshold of 128
+                let binary_value = if pixel_value >= 128 { 1 } else { 0 };
+                packed_value |= (binary_value as u32) << j;
+            } else if grayscale_bits == 4 {
                 let four_bit = pixel_value >> 4;
                 packed_value |= (four_bit as u32) << (4 * j);
             } else if grayscale_bits == 8 {
@@ -532,7 +536,7 @@ fn generate_frame_combinators(
         });
         new_entities.push(shifter1);
         // Connect wire to the first decider combinator in the group
-        let first_decider_id = current_entity_number + if grayscale_bits == 4 { 4 } else { 3 };
+        let first_decider_id = current_entity_number + if grayscale_bits == 1 || grayscale_bits == 4 { 4 } else { 3 };
         wires.push(json!([current_entity_number, 2, first_decider_id, 2]));
         wires.push(json!([current_entity_number, 1, first_decider_id, 3]));
         current_entity_number += 1;
@@ -545,7 +549,7 @@ fn generate_frame_combinators(
              "control_behavior": {
                 "arithmetic_conditions": {
                     "first_signal": {"type": "virtual", "name": "signal-each"},
-                    "second_constant": if grayscale_bits == 4 { 15 } else { 255 },
+                    "second_constant": if grayscale_bits == 1 { 1 } else if grayscale_bits == 4 { 15 } else { 255 },
                     "operation": "AND",
                     "output_signal": {"type": "virtual", "name": "signal-each"}
                 }
@@ -555,7 +559,7 @@ fn generate_frame_combinators(
         new_entities.push(shifter2);
         current_entity_number += 1;
 
-        if grayscale_bits == 4 {
+        if grayscale_bits == 1 || grayscale_bits == 4 {
             let shifter3 = json!({
                 "entity_number": current_entity_number,
                 "name": "arithmetic-combinator",
@@ -564,7 +568,7 @@ fn generate_frame_combinators(
                  "control_behavior": {
                     "arithmetic_conditions": {
                         "first_signal": {"type": "virtual", "name": "signal-each"},
-                        "second_constant": 17,
+                        "second_constant": if grayscale_bits == 1 { 255 } else { 17 },
                         "operation": "*",
                         "output_signal": {"type": "virtual", "name": "signal-each"}
                     }
@@ -797,7 +801,7 @@ pub fn update_full_blueprint(
             substation_quality,
             full_width,
             full_height,
-            max_rows_per_group + if grayscale_bits == 4 { 2 } else if grayscale_bits == 8 { 1 } else { 0},
+            max_rows_per_group + if grayscale_bits == 1 || grayscale_bits == 4 { 2 } else if grayscale_bits == 8 { 1 } else { 0},
             next_entity,
         );
     next_entity = next_entity_new;
@@ -845,7 +849,7 @@ pub fn update_full_blueprint(
                 next_entity,
                 group_offset_x as f64 + 0.5,
                 group_offset_x as f64 + 1.5,
-                if grayscale_bits == 4 { -5.0 } else if grayscale_bits == 8 { -4.0 } else { -3.0 },
+                if grayscale_bits == 1 || grayscale_bits == 4 { -5.0 } else if grayscale_bits == 8 { -4.0 } else { -3.0 },
                 max_rows_per_group,
                 grayscale_bits,
             );
@@ -871,7 +875,7 @@ pub fn update_full_blueprint(
 
         if use_grayscale {
             group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
-            let last_shifter = if grayscale_bits == 4 { first_connection_entity + 2 } else { first_connection_entity + 1 };
+            let last_shifter = if grayscale_bits == 1 || grayscale_bits == 4 { first_connection_entity + 2 } else { first_connection_entity + 1 };
             group_comb_wires.push(json!([first_lamp_entity, 1, last_shifter, 3]));
         } else {
             group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));

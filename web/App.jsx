@@ -362,7 +362,7 @@ function App() {
                 <span className="tooltip">
                   Full color will try to match the original GIF colors. If the blueprint is too large, you can try using grayscale.
                   8-bit grayscale has 256 shades of gray and can reduce the blueprint size by 60-70%, while 4-bit grayscale has 16 shades of gray
-                  and can reduce the blueprint size by up to 85%.
+                  and can reduce the blueprint size by up to 85%. Full black and white is roughly 32x smaller than full color.
                 </span>
               </label>
               <select
@@ -376,6 +376,7 @@ function App() {
                 <option value="0">Full Color</option>
                 <option value="8">8-bit Grayscale (256 shades)</option>
                 <option value="4">4-bit Grayscale (16 shades)</option>
+                <option value="1">1-bit (black & white only)</option>
               </select>
             </div>
           </div>
