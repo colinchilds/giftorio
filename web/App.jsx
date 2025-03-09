@@ -126,12 +126,18 @@ function App() {
     setYOffset(e.clientY - form.getBoundingClientRect().top);
     e.target.style.cursor = 'grabbing';
     setIsDragging(true);
+
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   const handleMouseUp = (e) => {
-    e.preventDefault();
-    e.target.style.cursor = 'pointer';
-    setIsDragging(false);
+    if(isDragging()) {
+      e.preventDefault();
+      e.target.style.cursor = 'pointer';
+      setIsDragging(false);
+    }
+
+    document.removeEventListener('mouseup', handleMouseUp);
   };
 
   document.addEventListener('mousemove', (e) => {
@@ -211,7 +217,7 @@ function App() {
         <div classList={{hidden: isGenerating()}} class="panel form">
           <div class="flex items-center justify-between">
             <h2 class="text-tan-500">Convert GIF to Blueprint</h2>
-            <div class="handle cursor-pointer" onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}></div>
+            <div class="handle cursor-pointer" onMouseDown={handleMouseDown}></div>
             <div
               class="mb-[10px] w-5 h-5 flex items-center content-center justify-center"
               classList={{
