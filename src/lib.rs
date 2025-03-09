@@ -60,19 +60,33 @@ pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
     Ok(format!("0{}", b64_encoded))
 }
 
-pub fn process_gif(
-    gif_data: &[u8],
+fn get_frames(image_data: &[u8], image_type: &str) -> Result<Vec<image::Frame>, JsValue> {
+    let cursor = std::io::Cursor::new(image_data);
+
+    let decoder_result = match image_type {
+        "gif" => image::codecs::gif::GifDecoder::new(cursor)
+            .map(|d| d.into_frames()),
+        "webp" => image::codecs::webp::WebPDecoder::new(cursor)
+            .map(|d| d.into_frames()),
+        _ => return Err(JsValue::from_str("Unsupported image type. Only 'gif' and 'webp' are allowed.")),
+    };
+
+    let frames = decoder_result
+        .map_err(|e| JsValue::from_str(&format!("{} decode error: {}", image_type.to_uppercase(), e)))?;
+
+    frames.collect_frames()
+        .map_err(|e| JsValue::from_str(&format!("Frame collection error: {}", e)))
+}
+
+pub fn process_image(
+    image_data: &[u8],
+    image_type: &str,
     max_size: u32,
     target_fps: u32,
     grayscale_bits: u32,
 ) -> Result<(Vec<DynamicImage>, u32), JsValue> {
     // --- First Pass: Decode and collect durations ---
-    let cursor = std::io::Cursor::new(gif_data);
-    let decoder = image::codecs::gif::GifDecoder::new(cursor)
-        .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?;
-    let frames = decoder.into_frames();
-    let frame_vec = frames.collect_frames()
-        .map_err(|e| JsValue::from_str(&format!("Frame collection error: {}", e)))?;
+    let frame_vec = get_frames(image_data, image_type)?;
 
     let mut durations = Vec::with_capacity(frame_vec.len());
     let mut total_ms = 0u32;
@@ -938,7 +952,7 @@ fn get_signals_with_quality(use_dlc: bool, signals: Vec<Value>) -> Vec<Value> {
 /// Exposed function for WebAssembly.
 ///
 /// Parameters:
-/// • gif_data: A byte array (e.g. a Uint8Array from JavaScript) containing the GIF.
+/// • image_data: A byte array (e.g. a Uint8Array from JavaScript) containing the GIF/WebP.
 /// • signals_json: A JSON string containing the available signals.
 /// • target_fps: The desired frames per second.
 /// • max_size: Maximum dimension (width/height) for downscaling.
@@ -947,7 +961,8 @@ fn get_signals_with_quality(use_dlc: bool, signals: Vec<Value>) -> Vec<Value> {
 /// Returns a Factorio blueprint string.
 #[wasm_bindgen]
 pub fn run_blueprint(
-    gif_data: &[u8],
+    image_data: &[u8],
+    image_type: &str,
     use_dlc: bool,
     signals_json: &str,
     target_fps: u32,
@@ -958,7 +973,7 @@ pub fn run_blueprint(
     // Parse available signals.
     let signals: Vec<Value> = serde_json::from_str(signals_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse signals JSON: {}", e)))?;
-    let (frames, fps) = process_gif(gif_data, max_size, target_fps, grayscale_bits)?;
+    let (frames, fps) = process_image(image_data, image_type, max_size, target_fps, grayscale_bits)?;
     if frames.is_empty() {
         return Err(JsValue::from_str("No frames sampled!"));
     }

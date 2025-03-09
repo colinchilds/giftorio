@@ -93,8 +93,8 @@ function App() {
       return;
     }
 
-    if (formData.file.type !== "image/gif") {
-      setToast({ show: true, message: 'Please select a GIF file', isError: true });
+    if (formData.file.type !== "image/gif" && formData.file.type !== "image/webp") {
+      setToast({ show: true, message: 'Please select a GIF/WebP file', isError: true });
       setTimeout(() => setToast({ show: false, message: '', isError: false }), 3000);
       setIsGenerating(false);
       formRefs.submitButton.disabled = false;
@@ -102,9 +102,11 @@ function App() {
     }
 
     try {
-      const gifData = new Uint8Array(await formData.file.arrayBuffer());
+      const imageType = formData.file.type.substring(6 /* image/ */)
+      const imageData = new Uint8Array(await formData.file.arrayBuffer());
       worker.postMessage({
-        gifData,
+        imageData,
+        imageType,
         targetFps: formData.targetFps,
         maxSize: formData.maxSize,
         useDLC: formData.useDLC,
@@ -238,7 +240,7 @@ function App() {
                 id="gifInput"
                 required
                 onChange={e => setFormData('file', e.target.files[0])}
-                accept="image/gif"
+                accept="image/gif,image/webp"
               />
             </div>
 
