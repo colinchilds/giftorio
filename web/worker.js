@@ -11,13 +11,14 @@ async function run() {
   });
 
   addEventListener("message", async (message) => {
-    const { gifData, targetFps, maxSize, useDLC, substationQuality, grayscaleBits } = message.data;
+    const { imageData, imageType, targetFps, maxSize, useDLC, substationQuality, grayscaleBits } = message.data;
     const signals = useDLC ? signals_dlc : signals_base;
     const signalsJson = JSON.stringify(signals);
 
     try {
       const blueprint = run_blueprint(
-        gifData,
+        imageData,
+        imageType,
         useDLC,
         signalsJson,
         targetFps,
