@@ -1,6 +1,4 @@
 import init, { run_blueprint, set_progress_callback } from "../pkg/giftorio_wasm.js";
-import { signals as signals_base } from "./signals.js";
-import { signals_dlc } from "./signals-dlc.js";
 
 async function run() {
   await init();
@@ -12,15 +10,12 @@ async function run() {
 
   addEventListener("message", async (message) => {
     const { imageData, imageType, targetFps, maxSize, useDLC, substationQuality, grayscaleBits } = message.data;
-    const signals = useDLC ? signals_dlc : signals_base;
-    const signalsJson = JSON.stringify(signals);
 
     try {
       const blueprint = run_blueprint(
         imageData,
         imageType,
         useDLC,
-        signalsJson,
         targetFps,
         maxSize,
         substationQuality,
