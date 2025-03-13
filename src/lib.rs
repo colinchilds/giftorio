@@ -153,7 +153,7 @@ fn rgb_to_int(r: u8, g: u8, b: u8) -> u32 {
 
 // Given a frame and a subset of available signals, convert each pixel to a filter JSON object
 // and add it to a constant combinator section.
-fn frame_to_sections(
+fn frame_to_outputs(
     frame: &DynamicImage,
     signals_subset: &[Value],
 ) -> Result<Vec<Value>, JsValue> {
@@ -171,10 +171,7 @@ fn frame_to_sections(
     let pixels = rgb_image.into_raw();
 
     // Preallocate section storage.
-    let mut sections = Vec::with_capacity(num_pixels / 1000 + 1);
-    let mut filters = Vec::with_capacity(1000);
-    let mut filter_index = 1;
-    let mut section_index = 1;
+    let mut outputs = Vec::with_capacity(num_pixels);
     for (i, chunk) in pixels.chunks(3).enumerate() {
         if chunk.len() < 3 {
             continue;
@@ -185,46 +182,17 @@ fn frame_to_sections(
         let value = rgb_to_int(r, g, b);
 
         // Preallocate the map with an estimated capacity.
-        let mut filter = serde_json::Map::with_capacity(6);
-        filter.insert("index".to_string(), Value::Number(filter_index.into()));
-        filter.insert("comparator".to_string(), Value::String("=".to_string()));
-        filter.insert("count".to_string(), Value::Number(value.into()));
-        filter.insert("quality".to_string(), Value::String("normal".to_string()));
-        // Merge in the corresponding signal data if it is an object.
-        if let Value::Object(map) = &signals_subset[i] {
-            for (k, v) in map {
-                filter.insert(k.clone(), v.clone());
-            }
-        }
-        filters.push(Value::Object(filter));
-
-        if filter_index == 1000 {
-            // Create the section from the accumulated filters.
-            // Instead of using the json! macro in the inner loop, you might build the map directly.
-            let mut section = serde_json::Map::with_capacity(2);
-            section.insert("index".to_string(), Value::Number(section_index.into()));
-            section.insert("filters".to_string(), Value::Array(filters));
-            sections.push(Value::Object(section));
-            // Prepare for the next section.
-            filters = Vec::with_capacity(1000);
-            section_index += 1;
-            filter_index = 1;
-        } else {
-            filter_index += 1;
-        }
-    }
-    // Push any remaining filters as the final section.
-    if !filters.is_empty() {
-        let mut section = serde_json::Map::with_capacity(2);
-        section.insert("index".to_string(), Value::Number(section_index.into()));
-        section.insert("filters".to_string(), Value::Array(filters));
-        sections.push(Value::Object(section));
+        let mut filter = serde_json::Map::with_capacity(3);
+        filter.insert("copy_count_from_input".to_string(), Value::Bool(false));
+        filter.insert("constant".to_string(), Value::Number(value.into()));
+        filter.insert("signal".to_string(), signals_subset[i].clone());
+        outputs.push(Value::Object(filter));
     }
 
-    Ok(sections)
+    Ok(outputs)
 }
 
-fn pack_grayscale_frames_to_sections(
+fn pack_grayscale_frames_to_outputs(
     frames: &[DynamicImage],
     signals_subset: &[Value],
     grayscale_bits: u32,
@@ -244,11 +212,7 @@ fn pack_grayscale_frames_to_sections(
     // Convert each frame to Luma8 (grayscale) so that each pixel is one u8.
     let luma_images: Vec<_> = frames.iter().map(|frame| frame.to_luma8()).collect();
 
-    let mut sections = Vec::with_capacity(num_pixels / 1000 + 1);
-    let mut filters = Vec::with_capacity(1000);
-    let mut filter_index = 1;
-    let mut section_index = 1;
-
+    let mut outputs = Vec::with_capacity(num_pixels);
     for i in 0..num_pixels {
         let mut packed_value: u32 = 0;
         for (j, img) in luma_images.iter().enumerate() {
@@ -267,38 +231,14 @@ fn pack_grayscale_frames_to_sections(
         // Convert to a signed 32-bit integer, wrapping if necessary.
         let signed_value = packed_value as i32;
 
-        let mut filter = serde_json::Map::with_capacity(6);
-        filter.insert("index".to_string(), Value::Number(filter_index.into()));
-        filter.insert("comparator".to_string(), Value::String("=".to_string()));
-        filter.insert("count".to_string(), Value::Number(signed_value.into()));
-        filter.insert("quality".to_string(), Value::String("normal".to_string()));
-        if let Value::Object(map) = &signals_subset[i] {
-            for (k, v) in map {
-                filter.insert(k.clone(), v.clone());
-            }
-        }
-        filters.push(Value::Object(filter));
-
-        if filter_index == 1000 {
-            let mut section = serde_json::Map::with_capacity(2);
-            section.insert("index".to_string(), Value::Number(section_index.into()));
-            section.insert("filters".to_string(), Value::Array(filters));
-            sections.push(Value::Object(section));
-            filters = Vec::with_capacity(1000);
-            section_index += 1;
-            filter_index = 1;
-        } else {
-            filter_index += 1;
-        }
+        let mut filter = serde_json::Map::with_capacity(3);
+        filter.insert("copy_count_from_input".to_string(), Value::Bool(false));
+        filter.insert("constant".to_string(), Value::Number(signed_value.into()));
+        filter.insert("signal".to_string(), signals_subset[i].clone());
+        outputs.push(Value::Object(filter));
     }
 
-    if !filters.is_empty() {
-        let mut section = serde_json::Map::with_capacity(2);
-        section.insert("index".to_string(), Value::Number(section_index.into()));
-        section.insert("filters".to_string(), Value::Array(filters));
-        sections.push(Value::Object(section));
-    }
-    Ok(sections)
+    Ok(outputs)
 }
 
 // Generates a timer that increments once per game tick, 60 times per second. This timer is used to
@@ -518,7 +458,6 @@ fn generate_frame_combinators(
     occupied_y: &HashSet<i32>,
     ticks_per_group: u32,
     base_entity_number: u32,
-    base_constant_x: f64,
     base_decider_x: f64,
     base_y: f64,
     max_rows_per_group: u32,
@@ -531,7 +470,7 @@ fn generate_frame_combinators(
 
     // If it's grayscale, then we need to add two arithmetic combinators to perform the bit masks.
     if grayscale_bits > 0 {
-        let shifter1_x = base_decider_x - 0.5;
+        let shifter1_x = base_decider_x;
         let shifter2_x = shifter1_x + 2.0;
         let shifter1 = json!({
             "entity_number": current_entity_number,
@@ -606,20 +545,8 @@ fn generate_frame_combinators(
             current_y -= 2.0;
         }
 
-        let constant_num = current_entity_number;
         let decider_num = current_entity_number + 1;
 
-        let constant_entity = json!({
-            "entity_number": constant_num,
-            "name": "constant-combinator",
-            "position": {"x": base_constant_x + x_offset, "y": current_y},
-            "direction": 4,
-            "control_behavior": {
-                "sections": {
-                    "sections": sections
-                }
-            }
-        });
         let lower_bound = (i as u32) * ticks_per_group;
         let upper_bound = (i as u32 + 1) * ticks_per_group;
 
@@ -643,20 +570,12 @@ fn generate_frame_combinators(
                             "compare_type": "and"
                         }
                     ],
-                    "outputs": [
-                        {
-                            "signal": {"type": "virtual", "name": "signal-everything"},
-                            "networks": {"red": true, "green": false}
-                        },
-                    ]
+                    "outputs": sections
                 }
             }
         });
-        new_entities.push(constant_entity);
         new_entities.push(decider_entity);
 
-        // Wire the constant to the decider.
-        wires.push(json!([constant_num, 1, decider_num, 1]));
         if !first_decider {
             let previous_decider_id = decider_num - 2;
             wires.push(json!([previous_decider_id, 2, decider_num, 2]));
@@ -678,7 +597,7 @@ fn generate_frame_combinators(
             row_in_this_column = 0;
             first_decider = true;
             y_offset = 0.0;
-            x_offset += 3.0;
+            x_offset += 2.0;
         }
     }
     (
@@ -795,7 +714,7 @@ pub fn update_full_blueprint(
         ));
     }
     let max_rows_per_group =
-        (((total_frames as f64 / ((max_columns_per_group as f64 / 3.0).floor())).ceil()) / frames_per_combinator as f64).ceil() as u32;
+        (((total_frames as f64 / ((max_columns_per_group as f64 / 2.0).floor())).ceil()) / frames_per_combinator as f64).ceil() as u32;
 
     let ticks_per_frame = (60.0 / fps as f64) as u32;
     let stop = total_frames * ticks_per_frame;
@@ -841,14 +760,14 @@ pub fn update_full_blueprint(
                         .iter()
                         .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
                         .collect();
-                    pack_grayscale_frames_to_sections(&cropped_frames, &signals_subset, grayscale_bits)
+                    pack_grayscale_frames_to_outputs(&cropped_frames, &signals_subset, grayscale_bits)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut sections = Vec::new();
             for frame in &sampled_frames {
                 let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-                sections.push(frame_to_sections(&cropped, &signals_subset)?);
+                sections.push(frame_to_outputs(&cropped, &signals_subset)?);
             }
             sections
         };
@@ -862,7 +781,6 @@ pub fn update_full_blueprint(
                 ticks_per_frame * frames_per_combinator,
                 next_entity,
                 group_offset_x as f64 + 0.5,
-                group_offset_x as f64 + 1.5,
                 if grayscale_bits == 1 || grayscale_bits == 4 { -5.0 } else if grayscale_bits == 8 { -4.0 } else { -3.0 },
                 max_rows_per_group,
                 grayscale_bits,
