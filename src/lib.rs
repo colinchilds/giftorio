@@ -5,6 +5,7 @@ mod image_processing;
 mod blueprint;
 mod signals;
 mod constants;
+mod models;
 
 /// Public entry point for WebAssembly.
 ///
@@ -28,7 +29,7 @@ pub fn run_blueprint(
     use_dlc: bool,
     target_fps: u32,
     max_size: u32,
-    substation_quality: &str,
+    substation_quality: String,
     grayscale_bits: u32,
 ) -> Result<String, JsValue> {
     // Process the image to extract frames and determine the effective FPS.

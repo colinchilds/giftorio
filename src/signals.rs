@@ -1,4 +1,7 @@
-use serde_json::{Value, json};
+use std::borrow::Cow;
+use crate::constants::*;
+use crate::models::Signal;
+use serde_json::Value;
 
 /// Enhances the provided signals by associating quality levels based on DLC usage.
 ///
@@ -10,28 +13,30 @@ use serde_json::{Value, json};
 /// # Returns
 ///
 /// A new vector of signal JSON objects with added quality attributes.
-pub fn get_signals_with_quality(use_dlc: bool) -> Vec<Value> {
-    let signals = get_signal_list(use_dlc);
-    signals
-        .iter()
+pub fn get_signals_with_quality(use_dlc: bool) -> Vec<Signal> {
+    get_signal_list(use_dlc)
+        .into_iter()
         .flat_map(|signal| {
             let mut signals_vec = Vec::new();
             let qualities = if use_dlc {
                 vec![
-                    "normal",
-                    "uncommon",
-                    "rare",
-                    "epic",
-                    "legendary",
-                    "quality-unknown",
+                    QUALITY_NORMAL,
+                    QUALITY_UNCOMMON,
+                    QUALITY_RARE,
+                    QUALITY_EPIC,
+                    QUALITY_LEGENDARY,
+                    QUALITY_UNKNOWN,
                 ]
             } else {
-                vec!["normal", "quality-unknown"]
+                vec![QUALITY_NORMAL, QUALITY_UNKNOWN]
             };
             for quality in qualities.iter() {
-                let mut sig = signal.clone();
-                sig["quality"] = json!(quality);
-                signals_vec.push(sig);
+                let signal = Signal {
+                    type_: Cow::Owned(signal["type"].as_str().unwrap().to_string()),
+                    name: Cow::Owned(signal["name"].as_str().unwrap().to_string()),
+                    quality: Some(quality),
+                };
+                signals_vec.push(signal);
             }
             signals_vec
         })

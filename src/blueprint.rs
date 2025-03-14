@@ -1,14 +1,15 @@
+use std::borrow::Cow;
 use crate::constants::*;
+use crate::image_processing::rgb_to_int;
+use crate::models::*;
 use crate::progress::report_progress;
 use crate::signals::get_signals_with_quality;
-use serde_json::{json, Value};
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use image::GenericImageView;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use flate2::Compression;
-use flate2::write::ZlibEncoder;
-use image::GenericImageView;
 use wasm_bindgen::JsValue;
-use crate::image_processing::rgb_to_int;
 
 /// Encodes the blueprint JSON as a Factorio blueprint string.
 ///
@@ -19,17 +20,18 @@ use crate::image_processing::rgb_to_int;
 /// # Returns
 ///
 /// A Factorio blueprint string on success.
-pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
+pub fn encode_blueprint(blueprint: &Blueprint) -> Result<String, JsValue> {
     report_progress(80, "Encoding blueprint...");
     let json_bytes = serde_json::to_vec(blueprint)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
 
     report_progress(85, "Compressing blueprint...");
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-    encoder.write_all(&json_bytes)
+    encoder
+        .write_all(&json_bytes)
         .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
-
-    let compressed = encoder.finish()
+    let compressed = encoder
+        .finish()
         .map_err(|e| JsValue::from_str(&format!("Compression finish error: {}", e)))?;
 
     let b64_encoded = base64::encode(&compressed);
@@ -37,7 +39,7 @@ pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
     Ok(format!("0{}", b64_encoded))
 }
 
-/// Generates timer entities and wires for the blueprint’s timing mechanism.
+/// Generates timer entities and wires for the blueprint's timing mechanism.
 ///
 /// # Arguments
 ///
@@ -49,129 +51,161 @@ pub fn encode_blueprint(blueprint: &Value) -> Result<String, JsValue> {
 /// # Returns
 ///
 /// A tuple with timer entities and wires.
-pub fn generate_timer(stop: u32, grayscale_bits: u32, ticks_per_frame: u32, frames_per_combinator: u32) -> (Vec<Value>, Vec<Value>) {
-    let timer_entity1 = json!({
-        "entity_number": 1,
-        "name": "constant-combinator",
-        "position": {"x": TIMER_ENTITY1_POSITION.0, "y": TIMER_ENTITY1_POSITION.1},
-        "direction": DIRECTION_RIGHT,
-        "control_behavior": {
-            "sections": {
-                "sections": [
-                    {
-                        "index": 1,
-                        "filters": [
-                            {
-                                "index": 1,
-                                "type": "virtual",
-                                "name": "signal-T",
-                                "quality": "normal",
-                                "comparator": "=",
-                                "count": 1
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-    });
-    let timer_entity2 = json!({
-        "entity_number": 2,
-        "name": "decider-combinator",
-        "position": {"x": TIMER_ENTITY2_POSITION.0, "y": TIMER_ENTITY2_POSITION.1},
-        "direction": DIRECTION_RIGHT,
-        "control_behavior": {
-            "decider_conditions": {
-                "conditions": [
-                    {
-                        "first_signal": {"type": "virtual", "name": "signal-T"},
-                        "constant": stop,
-                        "comparator": "<"
-                    }
-                ],
-                "outputs": [
-                    {"signal": {"type": "virtual", "name": "signal-T"}}
-                ]
-            }
-        },
-        "player_description": "[virtual-signal=signal-T] is our timer that ticks up 60 times per second up to the max ticks for the entire gif. \
-When it reaches the max, it will start over, resetting the gif. This timer is used to know which frames to render."
-    });
-    let timer_entity3 = json!({
-        "entity_number": 3,
-        "name": "arithmetic-combinator",
-        "position": {"x": TIMER_ENTITY3_POSITION.0, "y": TIMER_ENTITY3_POSITION.1},
-        "direction": DIRECTION_RIGHT,
-         "control_behavior": {
-            "arithmetic_conditions": {
-                "first_signal": {"type": "virtual", "name": "signal-T"},
-                "second_constant": 1,
-                "operation": "-",
-                "output_signal": {"type": "virtual", "name": "signal-T"}
-            }
-        }
-    });
+pub fn generate_timer(
+    stop: u32,
+    grayscale_bits: u32,
+    ticks_per_frame: u32,
+    frames_per_combinator: u32,
+) -> (Vec<Entity>, Vec<Wire>) {
+    let mut entities = Vec::new();
+    let mut wires = Vec::new();
 
-    let mut entities = vec![timer_entity1, timer_entity2, timer_entity3];
-    let mut wires = vec![
-        json!([1, 2, 2, 2]), // Constant combinator to decider combinator with green wire
-        json!([2, 2, 2, 4]), // Decider combinator to itself with green wire
-        json!([2, 2, 3, 2])  // Decider combinator to arithmetic combinator with green wire
-    ];
+    entities.push(
+        Entity::new(1,
+            CONSTANT_COMBINATOR,
+            Position {
+                x: TIMER_ENTITY1_POSITION.0,
+                y: TIMER_ENTITY1_POSITION.1,
+            },
+        )
+        .with_direction(DIRECTION_RIGHT)
+        .with_control_behavior(ControlBehavior::Constant {
+            sections: Sections {
+                sections: vec![Section {
+                    index: 1,
+                    filters: vec![Filter {
+                        index: 1,
+                        type_: SIGNAL_TYPE_VIRTUAL,
+                        name: SIGNAL_T,
+                        quality: Some(QUALITY_NORMAL),
+                        comparator: Some(COMPARATOR_EQUAL),
+                        count: Some(1),
+                    }],
+                }],
+            },
+        }),
+    );
+
+    entities.push(
+        Entity::new(2,
+            DECIDER_COMBINATOR,
+            Position {
+                x: TIMER_ENTITY2_POSITION.0,
+                y: TIMER_ENTITY2_POSITION.1
+            }
+        )
+        .with_direction(DIRECTION_RIGHT)
+        .with_control_behavior(ControlBehavior::Decider {
+            decider_conditions: DeciderConditions {
+                conditions: vec![Condition {
+                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                    constant: stop as i32,
+                    comparator: COMPARATOR_LESS,
+                    compare_type: None,
+                }],
+                outputs: vec![CombinatorOutput {
+                    copy_count_from_input: true,
+                    constant: None,
+                    signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                }],
+            },
+        })
+        .with_description("[virtual-signal=signal-T] is our timer that ticks up 60 times per second up to the max ticks for the entire gif. \
+        When it reaches the max, it will start over, resetting the gif. This timer is used to know which frames to render."));
+
+    entities.push(
+        Entity::new(
+            3,
+            ARITHMETIC_COMBINATOR,
+            Position {
+                x: TIMER_ENTITY3_POSITION.0,
+                y: TIMER_ENTITY3_POSITION.1,
+            },
+        )
+        .with_direction(DIRECTION_RIGHT)
+        .with_control_behavior(ControlBehavior::Arithmetic {
+            arithmetic_conditions: ArithmeticConditions {
+                first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                second_signal: None,
+                second_constant: Some(1),
+                operation: OPERATION_SUB,
+                output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+            },
+        }),
+    );
+
+    wires.push([1, 2, 2, 2]);
+    wires.push([2, 2, 2, 4]);
+    wires.push([2, 2, 3, 2]);
 
     if grayscale_bits > 0 {
-        let timer_entity4 = json!({
-            "entity_number": 4,
-            "name": "arithmetic-combinator",
-            "position": {"x": TIMER_ENTITY4_POSITION.0, "y": TIMER_ENTITY4_POSITION.1},
-            "direction": DIRECTION_LEFT,
-            "control_behavior": {
-                "arithmetic_conditions": {
-                    "first_signal": {"type": "virtual", "name": "signal-T"},
-                    "second_constant": ticks_per_frame * frames_per_combinator,
-                    "operation": "%",
-                    "output_signal": {"type": "virtual", "name": "signal-S"}
-                }
-            }
-        });
-        entities.push(timer_entity4);
+        entities.push(
+            Entity::new(
+                4,
+                ARITHMETIC_COMBINATOR,
+                Position {
+                    x: TIMER_ENTITY4_POSITION.0,
+                    y: TIMER_ENTITY4_POSITION.1,
+                },
+            )
+            .with_direction(DIRECTION_LEFT)
+            .with_control_behavior(ControlBehavior::Arithmetic {
+                arithmetic_conditions: ArithmeticConditions {
+                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                    second_signal: None,
+                    second_constant: Some((ticks_per_frame * frames_per_combinator) as i32),
+                    operation: OPERATION_MOD,
+                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                },
+            }),
+        );
 
-        let timer_entity5 = json!({
-            "entity_number": 5,
-            "name": "arithmetic-combinator",
-            "position": {"x": TIMER_ENTITY5_POSITION.0, "y": TIMER_ENTITY5_POSITION.1},
-            "control_behavior": {
-                "arithmetic_conditions": {
-                    "first_signal": {"type": "virtual", "name": "signal-S"},
-                    "second_constant": ticks_per_frame,
-                    "operation": "/",
-                    "output_signal": {"type": "virtual", "name": "signal-S"}
-                }
-            }
-        });
-        entities.push(timer_entity5);
+        entities.push(
+            Entity::new(
+                5,
+                ARITHMETIC_COMBINATOR,
+                Position {
+                    x: TIMER_ENTITY5_POSITION.0,
+                    y: TIMER_ENTITY5_POSITION.1,
+                },
+            )
+            .with_control_behavior(ControlBehavior::Arithmetic {
+                arithmetic_conditions: ArithmeticConditions {
+                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    second_signal: None,
+                    second_constant: Some(ticks_per_frame as i32),
+                    operation: OPERATION_DIV,
+                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                },
+            }),
+        );
 
-        let timer_entity6 = json!({
-            "entity_number": 6,
-            "name": "arithmetic-combinator",
-            "position": {"x": TIMER_ENTITY6_POSITION.0, "y": TIMER_ENTITY6_POSITION.1},
-            "direction": DIRECTION_RIGHT,
-            "control_behavior": {
-                "arithmetic_conditions": {
-                    "first_signal": {"type": "virtual", "name": "signal-S"},
-                    "second_constant": grayscale_bits,
-                    "operation": "*",
-                    "output_signal": {"type": "virtual", "name": "signal-F"}
-                }
-            },
-            "player_description": "Calculates the bit shift necessary for the frame we should be rendering."
-        });
-        entities.push(timer_entity6);
+        entities.push(
+            Entity::new(
+                6,
+                ARITHMETIC_COMBINATOR,
+                Position {
+                    x: TIMER_ENTITY6_POSITION.0,
+                    y: TIMER_ENTITY6_POSITION.1,
+                },
+            )
+            .with_direction(DIRECTION_RIGHT)
+            .with_control_behavior(ControlBehavior::Arithmetic {
+                arithmetic_conditions: ArithmeticConditions {
+                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    second_signal: None,
+                    second_constant: Some(grayscale_bits as i32),
+                    operation: OPERATION_MUL,
+                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                },
+            })
+            .with_description("Calculates the bit shift necessary for the frame we should be rendering."),
+        );
 
-        wires.push(json!([3, 2, 4, 2]));
-        wires.push(json!([4, 4, 5, 2]));
-        wires.push(json!([5, 4, 6, 2]));
-        wires.push(json!([6, 4, 3, 4]));
+        wires.push([3, 2, 4, 2]);
+        wires.push([4, 4, 5, 2]);
+        wires.push([5, 4, 6, 2]);
+        wires.push([6, 4, 3, 4]);
     }
 
     (entities, wires)
@@ -191,22 +225,21 @@ When it reaches the max, it will start over, resetting the gif. This timer is us
 ///
 /// A tuple with substation entities, their wires, occupied grid cells, and the next entity number.
 pub fn generate_substations(
-    substation_quality: &str,
+    substation_quality: String,
     lamp_width: u32,
     lamp_height: u32,
     frame_count: u32,
     start_entity_number: u32,
-) -> (Vec<Value>, Vec<Value>, HashSet<(i32, i32)>, u32) {
-    if substation_quality == "none" {
+) -> (Vec<Entity>, Vec<Wire>, HashSet<(i32, i32)>, u32) {
+    if substation_quality == QUALITY_NONE {
         return (Vec::new(), Vec::new(), HashSet::new(), start_entity_number);
     }
-
-    let coverage = match substation_quality {
-        "normal" => 18,
-        "uncommon" => 20,
-        "rare" => 22,
-        "epic" => 24,
-        "legendary" => 28,
+    let coverage = match substation_quality.as_str() {
+        QUALITY_NORMAL => 18,
+        QUALITY_UNCOMMON => 20,
+        QUALITY_RARE => 22,
+        QUALITY_EPIC => 24,
+        QUALITY_LEGENDARY => 28,
         _ => 18,
     };
     let mut substation_entities = Vec::new();
@@ -232,41 +265,48 @@ pub fn generate_substations(
         for j in 0..num_substations_width {
             let x = start_x + (j as i32 * coverage as i32);
             let y = start_y + (i as i32 * coverage as i32);
-            let mut substation = json!({
-                "entity_number": current_entity,
-                "name": "substation",
-                "position": {"x": x, "y": y}
-            });
-            if substation_quality != "normal" {
-                substation["quality"] = substation_quality.into();
-            }
+            let mut entity = Entity::new(
+                current_entity,
+                SUBSTATION,
+                Position {
+                    x: x as f64,
+                    y: y as f64,
+                },
+            );
+            entity.quality = if substation_quality.as_str() != QUALITY_NORMAL {
+                Some(substation_quality.clone())
+            } else {
+                None
+            };
+            substation_entities.push(entity);
+
+            // Mark occupied cells.
             occupied_cells.insert((x - 1, y - 1));
             occupied_cells.insert((x - 1, y));
             occupied_cells.insert((x, y - 1));
             occupied_cells.insert((x, y));
-            substation_entities.push(substation);
             if i > 0 {
-                substation_wires.push(json!([
-                    current_entity,
-                    5,
-                    current_entity - num_substations_width,
-                    5
-                ]));
+                substation_wires.push([current_entity, 5, current_entity - num_substations_width, 5]);
             }
             if j > 0 {
-                substation_wires.push(json!([current_entity, 5, current_entity - 1, 5]));
+                substation_wires.push([current_entity, 5, current_entity - 1, 5]);
             }
             current_entity += 1;
         }
     }
-    (substation_entities, substation_wires, occupied_cells, current_entity)
+    (
+        substation_entities,
+        substation_wires,
+        occupied_cells,
+        current_entity,
+    )
 }
 
 /// Generates combinator entities and wiring for each frame group.
 ///
 /// # Arguments
 ///
-/// * `frame_sections` - A vector of frame signal sections.
+/// * `frame_outputs` - A vector of all the outputs for a frame.
 /// * `occupied_y` - Set of Y coordinates occupied by substations.
 /// * `ticks_per_group` - Ticks per group.
 /// * `base_entity_number` - Starting entity number.
@@ -279,7 +319,7 @@ pub fn generate_substations(
 ///
 /// A tuple containing combinator entities, their wires, and the next entity number.
 pub fn generate_frame_combinators(
-    frame_outputs: &[Vec<Value>],
+    frame_outputs: &[Vec<CombinatorOutput>],
     occupied_y: &HashSet<i32>,
     ticks_per_group: u32,
     base_entity_number: u32,
@@ -287,72 +327,85 @@ pub fn generate_frame_combinators(
     base_y: f64,
     max_rows_per_group: u32,
     grayscale_bits: u32,
-) -> (Vec<Value>, Vec<Value>, u32) {
+) -> (Vec<Entity>, Vec<Wire>, u32) {
     let mut current_entity_number = base_entity_number;
     let num_frames = frame_outputs.len();
     let mut new_entities = Vec::with_capacity(num_frames * 2 + 3);
-    let mut wires = Vec::with_capacity((num_frames * 3) + 4);
+    let mut wires = Vec::with_capacity(num_frames * 3 + 4);
 
-    // Add extra arithmetic combinators for grayscale adjustments if needed.
     if grayscale_bits > 0 {
         let shifter1_x = base_decider_x;
         let shifter2_x = shifter1_x + 2.0;
-        let shifter1 = json!({
-            "entity_number": current_entity_number,
-            "name": "arithmetic-combinator",
-            "position": {"x": shifter1_x, "y": base_y + 1.0},
-            "direction": DIRECTION_RIGHT,
-            "control_behavior": {
-                "arithmetic_conditions": {
-                    "first_signal": {"type": "virtual", "name": "signal-each"},
-                    "second_signal": {"type": "virtual", "name": "signal-F"},
-                    "operation": ">>",
-                    "output_signal": {"type": "virtual", "name": "signal-each"},
-                    "first_signal_networks": {"red": true, "green": false}
-                }
-            }
-        });
-        new_entities.push(shifter1);
+        new_entities.push(
+            Entity::new(
+                current_entity_number,
+                ARITHMETIC_COMBINATOR,
+                Position {
+                    x: shifter1_x,
+                    y: base_y + 1.0,
+                },
+            )
+            .with_direction(DIRECTION_RIGHT)
+            .with_control_behavior(ControlBehavior::Arithmetic {
+                arithmetic_conditions: ArithmeticConditions {
+                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                    second_signal: Some(Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_F), quality: None }),
+                    second_constant: None,
+                    operation: OPERATION_SHIFT_R,
+                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                },
+            }),
+        );
+
         let first_decider_id = current_entity_number + if grayscale_bits == 1 || grayscale_bits == 4 { 4 } else { 3 };
-        wires.push(json!([current_entity_number, 2, first_decider_id, 2]));
-        wires.push(json!([current_entity_number, 1, first_decider_id, 3]));
+        wires.push([current_entity_number, 2, first_decider_id, 2]);
+        wires.push([current_entity_number, 1, first_decider_id, 3]);
         current_entity_number += 1;
 
-        let shifter2 = json!({
-            "entity_number": current_entity_number,
-            "name": "arithmetic-combinator",
-            "position": {"x": shifter2_x, "y": base_y + 1.0},
-            "direction": DIRECTION_RIGHT,
-            "control_behavior": {
-                "arithmetic_conditions": {
-                    "first_signal": {"type": "virtual", "name": "signal-each"},
-                    "second_constant": if grayscale_bits == 1 { 1 } else if grayscale_bits == 4 { 15 } else { 255 },
-                    "operation": "AND",
-                    "output_signal": {"type": "virtual", "name": "signal-each"}
-                }
-            }
-        });
-        wires.push(json!([current_entity_number - 1, 4, current_entity_number, 2]));
-        new_entities.push(shifter2);
+        new_entities.push(
+            Entity::new(
+                current_entity_number,
+                ARITHMETIC_COMBINATOR,
+                Position {
+                    x: shifter2_x,
+                    y: base_y + 1.0,
+                },
+            )
+            .with_direction(DIRECTION_RIGHT)
+            .with_control_behavior(ControlBehavior::Arithmetic {
+                arithmetic_conditions: ArithmeticConditions {
+                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                    second_signal: None,
+                    second_constant: Some(if grayscale_bits == 1 { 1 } else if grayscale_bits == 4 { 15 } else { 255 }),
+                    operation: OPERATION_AND,
+                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                },
+            }),
+        );
+        wires.push([current_entity_number - 1, 4, current_entity_number, 2]);
         current_entity_number += 1;
-
         if grayscale_bits == 1 || grayscale_bits == 4 {
-            let shifter3 = json!({
-                "entity_number": current_entity_number,
-                "name": "arithmetic-combinator",
-                "position": {"x": shifter1_x + 1.0, "y": base_y + 2.0},
-                "direction": 12,
-                "control_behavior": {
-                    "arithmetic_conditions": {
-                        "first_signal": {"type": "virtual", "name": "signal-each"},
-                        "second_constant": if grayscale_bits == 1 { 255 } else { 17 },
-                        "operation": "*",
-                        "output_signal": {"type": "virtual", "name": "signal-each"}
-                    }
-                }
-            });
-            wires.push(json!([current_entity_number - 1, 4, current_entity_number, 2]));
-            new_entities.push(shifter3);
+            new_entities.push(
+                Entity::new(
+                    current_entity_number,
+                    ARITHMETIC_COMBINATOR,
+                    Position {
+                        x: shifter2_x + 1.0,
+                        y: base_y + 2.0,
+                    },
+                )
+                .with_direction(DIRECTION_LEFT)
+                .with_control_behavior(ControlBehavior::Arithmetic {
+                    arithmetic_conditions: ArithmeticConditions {
+                        first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                        second_signal: None,
+                        second_constant: Some(if grayscale_bits == 1 { 255 } else { 17 }),
+                        operation: OPERATION_MUL,
+                        output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                    },
+                }),
+            );
+            wires.push([current_entity_number - 1, 4, current_entity_number, 2]);
             current_entity_number += 1;
         }
     }
@@ -368,44 +421,47 @@ pub fn generate_frame_combinators(
             y_offset += 2.0;
             current_y -= 2.0;
         }
-
         let decider_num = current_entity_number + 1;
-        let lower_bound = (i as u32) * ticks_per_group;
-        let upper_bound = (i as u32 + 1) * ticks_per_group;
-        let decider_entity = json!({
-            "entity_number": decider_num,
-            "name": "decider-combinator",
-            "position": {"x": base_decider_x + x_offset, "y": current_y},
-            "direction": DIRECTION_RIGHT,
-            "control_behavior": {
-                "decider_conditions": {
-                    "conditions": [
-                        {
-                            "first_signal": {"type": "virtual", "name": "signal-T"},
-                            "constant": lower_bound,
-                            "comparator": ">="
-                        },
-                        {
-                            "first_signal": {"type": "virtual", "name": "signal-T"},
-                            "constant": upper_bound,
-                            "comparator": "<",
-                            "compare_type": "and"
-                        }
-                    ],
-                    "outputs": outputs
-                }
-            }
+        let lower_bound = (i as u32 * ticks_per_group) as i32;
+        let upper_bound = ((i as u32 + 1) * ticks_per_group) as i32;
+        let decider_entity = Entity::new(
+            decider_num,
+            DECIDER_COMBINATOR,
+            Position {
+                x: base_decider_x + x_offset,
+                y: current_y,
+            },
+        )
+        .with_direction(DIRECTION_RIGHT)
+        .with_control_behavior(ControlBehavior::Decider {
+            decider_conditions: DeciderConditions {
+                conditions: vec![
+                    Condition {
+                        first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                        constant: lower_bound,
+                        comparator: COMPARATOR_GREATER_EQUAL,
+                        compare_type: None,
+                    },
+                    Condition {
+                        first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                        constant: upper_bound,
+                        comparator: COMPARATOR_LESS,
+                        compare_type: Some(OPERATION_AND),
+                    },
+                ],
+                outputs: outputs.clone(), // Cloning the outputs once per entity.
+            },
         });
         new_entities.push(decider_entity);
 
         if !first_decider {
             let previous_decider_id = decider_num - 2;
-            wires.push(json!([previous_decider_id, 2, decider_num, 2]));
-            wires.push(json!([previous_decider_id, 3, decider_num, 3]));
+            wires.push([previous_decider_id, 2, decider_num, 2]);
+            wires.push([previous_decider_id, 3, decider_num, 3]);
         } else {
             if let Some(prev) = previous_first_decider {
-                wires.push(json!([prev, 2, decider_num, 2]));
-                wires.push(json!([prev, 3, decider_num, 3]));
+                wires.push([prev, 2, decider_num, 2]);
+                wires.push([prev, 3, decider_num, 3]);
             }
             previous_first_decider = Some(decider_num);
         }
@@ -428,10 +484,10 @@ pub fn generate_frame_combinators(
 ///
 /// # Arguments
 ///
-/// * `lamp_signals` - Slice of signals to assign to each lamp.
+/// * `lamp_signals` - Signals to assign to each lamp.
 /// * `grid_width` - Number of lamps horizontally.
 /// * `grid_height` - Number of lamps vertically.
-/// * `occupied_cells` - Set of grid cells already occupied.
+/// * `occupied_cells` - Set of grid cells already occupied by substations.
 /// * `start_entity_number` - Starting entity number for lamps.
 /// * `start_x` - Starting X coordinate.
 /// * `start_y` - Starting Y coordinate.
@@ -441,7 +497,7 @@ pub fn generate_frame_combinators(
 ///
 /// A tuple with lamp entities, lamp wires, the next entity number, and the top-right lamp entity.
 pub fn generate_lamps(
-    lamp_signals: &[Value],
+    lamp_signals: &Vec<Signal>,
     grid_width: u32,
     grid_height: u32,
     occupied_cells: &HashSet<(i32, i32)>,
@@ -449,13 +505,13 @@ pub fn generate_lamps(
     start_x: i32,
     start_y: i32,
     use_grayscale: bool,
-) -> (Vec<Value>, Vec<Value>, u32, u32) {
+) -> (Vec<Entity>, Vec<Wire>, u32, u32) {
     let mut lamp_entities = Vec::new();
     let mut lamp_wires = Vec::new();
     let mut current_entity = start_entity_number;
     let mut previous_entities: HashMap<i32, u32> = HashMap::new();
     let mut top_right_lamp: u32 = 0;
-    let default_signal = json!({});
+
     for r in 0..grid_height as i32 {
         for c in 0..grid_width as i32 {
             let x = start_x + c;
@@ -464,38 +520,41 @@ pub fn generate_lamps(
                 continue;
             }
             let index = (r as u32 * grid_width + c as u32) as usize;
-            let signal = lamp_signals.get(index).unwrap_or(&default_signal);
+            let signal = lamp_signals[index].clone();
             let colors = if use_grayscale {
-                json!({
-                    "use_colors": true,
-                    "color_mode": 1,
-                    "red_signal": signal.clone(),
-                    "green_signal": signal.clone(),
-                    "blue_signal": signal.clone(),
-                })
+                ControlBehavior::GrayLamp {
+                    use_colors: true,
+                    color_mode: 1,
+                    red_signal: signal.clone(),
+                    green_signal: signal.clone(),
+                    blue_signal: signal.clone(),
+                }
             } else {
-                json!({
-                    "use_colors": true,
-                    "color_mode": 2,
-                    "rgb_signal": signal.clone(),
-                })
+                ControlBehavior::ColorLamp {
+                    use_colors: true,
+                    color_mode: 2,
+                    rgb_signal: signal,
+                }
             };
-            let lamp = json!({
-                "entity_number": current_entity,
-                "name": "small-lamp",
-                "position": {"x": x, "y": y},
-                "control_behavior": colors,
-                "always_on": true
-            });
+            let lamp = Entity::new(
+                current_entity,
+                LAMP,
+                Position {
+                    x: x as f64,
+                    y: y as f64,
+                },
+            )
+            .with_control_behavior(colors)
+            .with_always_on(true);
             lamp_entities.push(lamp);
             if r == 0 && c > 0 {
-                lamp_wires.push(json!([current_entity, 1, current_entity - 1, 1]));
-                lamp_wires.push(json!([current_entity, 2, current_entity - 1, 2]));
+                lamp_wires.push([current_entity, 1, current_entity - 1, 1]);
+                lamp_wires.push([current_entity, 2, current_entity - 1, 2]);
                 top_right_lamp = current_entity;
             }
             if r > 0 {
                 if let Some(&prev_entity) = previous_entities.get(&x) {
-                    lamp_wires.push(json!([current_entity, 1, prev_entity, 1]));
+                    lamp_wires.push([current_entity, 1, prev_entity, 1]);
                 }
             }
             previous_entities.insert(x, current_entity);
@@ -524,27 +583,16 @@ pub fn update_full_blueprint(
     sampled_frames: Vec<image::DynamicImage>,
     use_dlc: bool,
     grayscale_bits: u32,
-    substation_quality: &str,
-) -> Result<Value, JsValue> {
+    substation_quality: String,
+) -> Result<Blueprint, JsValue> {
     report_progress(0, "Starting blueprint update");
 
-    let signals: Vec<Value> = get_signals_with_quality(use_dlc);
+    // Get signals internally.
+    let signals: Vec<Signal> = get_signals_with_quality(use_dlc);
 
     if sampled_frames.is_empty() {
         return Err(JsValue::from_str("No sampled frames"));
     }
-    let mut blueprint = json!({
-        "blueprint": {
-            "icons": [{
-                "signal": {"name": "decider-combinator"},
-                "index": 1
-            }],
-            "entities": [],
-            "wires": [],
-            "item": "blueprint",
-            "version": BLUEPRINT_VERSION
-        }
-    });
 
     let use_grayscale = grayscale_bits > 0;
     let total_frames = sampled_frames.len() as u32;
@@ -564,10 +612,10 @@ pub fn update_full_blueprint(
     let (timer_entities, timer_wires) = generate_timer(stop, grayscale_bits, ticks_per_frame, frames_per_combinator);
 
     let mut all_entities = timer_entities;
-    let mut all_wires: Vec<Value> = timer_wires;
+    let mut all_wires: Vec<Wire> = timer_wires;
     let mut next_entity = all_entities
         .iter()
-        .map(|e| e.get("entity_number").and_then(|v| v.as_u64()).unwrap_or(0) as u32)
+        .map(|e| e.entity_number)
         .max()
         .unwrap_or(0)
         + 1;
@@ -577,14 +625,16 @@ pub fn update_full_blueprint(
             substation_quality,
             full_width,
             full_height,
-            max_rows_per_group + if grayscale_bits == 1 || grayscale_bits == 4 { 2 } else if grayscale_bits == 8 { 1 } else { 0},
+            max_rows_per_group + if grayscale_bits == 1 || grayscale_bits == 4 { 2 } else if grayscale_bits == 8 { 1 } else { 0 },
             next_entity,
         );
+
     next_entity = next_entity_new;
     all_entities.extend(substation_entities);
     all_wires.extend(substation_wires);
     let substation_occupied_y: HashSet<i32> = occupied_cells.iter().map(|(_, y)| *y).collect();
     let mut previous_top_right_lamp: Option<u32> = None;
+
     for group_index in 0..num_groups {
         let group_left = group_index * max_columns_per_group;
         let group_right = ((group_index + 1) * max_columns_per_group).min(full_width);
@@ -612,23 +662,21 @@ pub fn update_full_blueprint(
 
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = if use_grayscale { next_entity } else { next_entity + 1 };
-        let (group_combinators, mut group_comb_wires, new_next_entity) =
-            generate_frame_combinators(
-                &group_frames_outputs,
-                &substation_occupied_y,
-                ticks_per_frame * frames_per_combinator,
-                next_entity,
-                group_offset_x as f64 + 0.5,
-                if grayscale_bits == 1 || grayscale_bits == 4 { -5.0 } else if grayscale_bits == 8 { -4.0 } else { -3.0 },
-                max_rows_per_group,
-                grayscale_bits,
-            );
+        let (group_combinators, mut group_comb_wires, new_next_entity) = generate_frame_combinators(
+            &group_frames_outputs,
+            &substation_occupied_y,
+            ticks_per_frame * frames_per_combinator,
+            next_entity,
+            group_offset_x as f64 + 0.5,
+            if grayscale_bits == 1 || grayscale_bits == 4 { -5.0 } else if grayscale_bits == 8 { -4.0 } else { -3.0 },
+            max_rows_per_group,
+            grayscale_bits,
+        );
         if group_index == 0 {
-            group_comb_wires.push(json!([3, 4, first_connection_entity, 2]));
+            group_comb_wires.push([3, 4, first_connection_entity, 2]);
         }
         next_entity = new_next_entity;
 
-        let first_lamp_entity = next_entity;
         let (group_lamps, mut group_lamp_wires, new_next_entity, top_right_lamp) = generate_lamps(
             &signals,
             group_width,
@@ -641,19 +689,21 @@ pub fn update_full_blueprint(
         );
         next_entity = new_next_entity;
 
+        let first_lamp_entity = group_lamps[0].entity_number;
         if use_grayscale {
-            group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
+            group_comb_wires.push([first_lamp_entity, 2, first_connection_entity, 2]);
             let last_shifter = if grayscale_bits == 1 || grayscale_bits == 4 { first_connection_entity + 2 } else { first_connection_entity + 1 };
-            group_comb_wires.push(json!([first_lamp_entity, 1, last_shifter, 3]));
+            group_comb_wires.push([first_lamp_entity, 1, last_shifter, 3]);
         } else {
-            group_comb_wires.push(json!([first_lamp_entity, 1, first_connection_entity, 3]));
-            group_comb_wires.push(json!([first_lamp_entity, 2, first_connection_entity, 2]));
+            group_comb_wires.push([first_lamp_entity, 1, first_connection_entity, 3]);
+            group_comb_wires.push([first_lamp_entity, 2, first_connection_entity, 2]);
         }
 
         if let Some(prev) = previous_top_right_lamp {
-            group_lamp_wires.push(json!([first_lamp_entity, 2, prev, 2]));
+            group_lamp_wires.push([group_lamps[0].entity_number, 2, prev, 2]);
         }
         previous_top_right_lamp = Some(top_right_lamp);
+
         all_entities.extend(group_combinators);
         all_entities.extend(group_lamps);
         all_wires.extend(group_comb_wires);
@@ -665,14 +715,20 @@ pub fn update_full_blueprint(
             &format!("Processed chunk {}/{}", group_index + 1, num_groups),
         );
     }
-    if let Some(bp) = blueprint.get_mut("blueprint") {
-        bp.as_object_mut()
-            .unwrap()
-            .insert("entities".to_string(), Value::Array(all_entities));
-        bp.as_object_mut()
-            .unwrap()
-            .insert("wires".to_string(), Value::Array(all_wires));
-    }
+
+    let blueprint = Blueprint {
+        blueprint: BlueprintInner {
+            icons: vec![Icon {
+                signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(DECIDER_COMBINATOR), quality: None, },
+                index: 1,
+            }],
+            entities: all_entities,
+            wires: all_wires,
+            item: BLUEPRINT,
+            version: BLUEPRINT_VERSION,
+        },
+    };
+
     Ok(blueprint)
 }
 
@@ -686,11 +742,11 @@ pub fn update_full_blueprint(
 ///
 /// # Returns
 ///
-/// An integer representing the RGB color.
+/// A vector of CombinatorOutputs for the frame
 pub fn frame_to_outputs(
     frame: &image::DynamicImage,
-    signals: &[Value],
-) -> Result<Vec<Value>, JsValue> {
+    signals: &Vec<Signal>,
+) -> Result<Vec<CombinatorOutput>, JsValue> {
     let (width, height) = frame.dimensions();
     let num_pixels = (width * height) as usize;
     if num_pixels > signals.len() {
@@ -707,15 +763,13 @@ pub fn frame_to_outputs(
         if chunk.len() < 3 {
             continue;
         }
-        let r = chunk[0];
-        let g = chunk[1];
-        let b = chunk[2];
-        let value = rgb_to_int(r, g, b);
-        let mut output = serde_json::Map::with_capacity(3);
-        output.insert("copy_count_from_input".to_string(), Value::Bool(false));
-        output.insert("constant".to_string(), Value::Number(value.into()));
-        output.insert("signal".to_string(), signals[i].clone());
-        outputs.push(Value::Object(output));
+        let value = rgb_to_int(chunk[0], chunk[1], chunk[2]) as i32;
+        let signal: Signal = signals[i].clone();
+        outputs.push(CombinatorOutput {
+            copy_count_from_input: false,
+            constant: Some(value),
+            signal,
+        });
     }
     Ok(outputs)
 }
@@ -725,7 +779,7 @@ pub fn frame_to_outputs(
 /// # Arguments
 ///
 /// * `frames` - A slice of grayscale image frames.
-/// * `signals_subset` - The subset of signals to map to each pixel.
+/// * `signals` - The signals to map to each pixel.
 /// * `grayscale_bits` - Number of bits for grayscale conversion.
 ///
 /// # Returns
@@ -733,29 +787,33 @@ pub fn frame_to_outputs(
 /// A vector of JSON objects representing output filters.
 pub fn pack_grayscale_frames_to_outputs(
     frames: &[image::DynamicImage],
-    signals_subset: &[Value],
+    signals: &Vec<Signal>,
     grayscale_bits: u32,
-) -> Result<Vec<Value>, JsValue> {
+) -> Result<Vec<CombinatorOutput>, JsValue> {
     if frames.is_empty() {
         return Err(JsValue::from_str("No frames provided for packing"));
     }
     let (width, height) = frames[0].dimensions();
     let num_pixels = (width * height) as usize;
-    if num_pixels > signals_subset.len() {
+    if num_pixels > signals.len() {
         return Err(JsValue::from_str(&format!(
             "Frame pixel count ({}) exceeds available signals ({}).",
             num_pixels,
-            signals_subset.len()
+            signals.len()
         )));
     }
     let luma_images: Vec<_> = frames.iter().map(|frame| frame.to_luma8()).collect();
     let mut outputs = Vec::with_capacity(num_pixels);
     for i in 0..num_pixels {
-        let mut packed_value: u32 = 0;
+        let mut packed_value = 0;
         for (j, img) in luma_images.iter().enumerate() {
             let pixel_value = img.as_raw()[i];
             if grayscale_bits == 1 {
-                let binary_value = if pixel_value >= GRAYSCALE_THRESHOLD { 1 } else { 0 };
+                let binary_value = if pixel_value >= GRAYSCALE_THRESHOLD {
+                    1
+                } else {
+                    0
+                };
                 packed_value |= (binary_value as u32) << j;
             } else if grayscale_bits == 4 {
                 let four_bit = pixel_value >> 4;
@@ -764,12 +822,12 @@ pub fn pack_grayscale_frames_to_outputs(
                 packed_value |= (pixel_value as u32) << (8 * j);
             }
         }
-        let signed_value = packed_value as i32;
-        let mut filter = serde_json::Map::with_capacity(3);
-        filter.insert("copy_count_from_input".to_string(), Value::Bool(false));
-        filter.insert("constant".to_string(), Value::Number(signed_value.into()));
-        filter.insert("signal".to_string(), signals_subset[i].clone());
-        outputs.push(Value::Object(filter));
+        let signal: Signal = signals[i].clone();
+        outputs.push(CombinatorOutput {
+            copy_count_from_input: false,
+            constant: Some(packed_value as i32),
+            signal,
+        });
     }
     Ok(outputs)
 }
