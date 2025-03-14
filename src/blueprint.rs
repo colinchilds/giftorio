@@ -279,7 +279,7 @@ pub fn generate_substations(
 ///
 /// A tuple containing combinator entities, their wires, and the next entity number.
 pub fn generate_frame_combinators(
-    frame_sections: &Vec<Vec<Value>>,
+    frame_outputs: &[Vec<Value>],
     occupied_y: &HashSet<i32>,
     ticks_per_group: u32,
     base_entity_number: u32,
@@ -289,7 +289,7 @@ pub fn generate_frame_combinators(
     grayscale_bits: u32,
 ) -> (Vec<Value>, Vec<Value>, u32) {
     let mut current_entity_number = base_entity_number;
-    let num_frames = frame_sections.len();
+    let num_frames = frame_outputs.len();
     let mut new_entities = Vec::with_capacity(num_frames * 2 + 3);
     let mut wires = Vec::with_capacity((num_frames * 3) + 4);
 
@@ -302,7 +302,7 @@ pub fn generate_frame_combinators(
             "name": "arithmetic-combinator",
             "position": {"x": shifter1_x, "y": base_y + 1.0},
             "direction": DIRECTION_RIGHT,
-             "control_behavior": {
+            "control_behavior": {
                 "arithmetic_conditions": {
                     "first_signal": {"type": "virtual", "name": "signal-each"},
                     "second_signal": {"type": "virtual", "name": "signal-F"},
@@ -323,7 +323,7 @@ pub fn generate_frame_combinators(
             "name": "arithmetic-combinator",
             "position": {"x": shifter2_x, "y": base_y + 1.0},
             "direction": DIRECTION_RIGHT,
-             "control_behavior": {
+            "control_behavior": {
                 "arithmetic_conditions": {
                     "first_signal": {"type": "virtual", "name": "signal-each"},
                     "second_constant": if grayscale_bits == 1 { 1 } else if grayscale_bits == 4 { 15 } else { 255 },
@@ -342,7 +342,7 @@ pub fn generate_frame_combinators(
                 "name": "arithmetic-combinator",
                 "position": {"x": shifter1_x + 1.0, "y": base_y + 2.0},
                 "direction": 12,
-                 "control_behavior": {
+                "control_behavior": {
                     "arithmetic_conditions": {
                         "first_signal": {"type": "virtual", "name": "signal-each"},
                         "second_constant": if grayscale_bits == 1 { 255 } else { 17 },
@@ -362,7 +362,7 @@ pub fn generate_frame_combinators(
     let mut y_offset = 0.0;
     let mut row_in_this_column = 0;
     let mut previous_first_decider: Option<u32> = None;
-    for (i, sections) in frame_sections.iter().enumerate() {
+    for (i, outputs) in frame_outputs.iter().enumerate() {
         let mut current_y = base_y - row_in_this_column as f64 - y_offset;
         if occupied_y.contains(&(current_y.floor() as i32)) {
             y_offset += 2.0;
@@ -392,7 +392,7 @@ pub fn generate_frame_combinators(
                             "compare_type": "and"
                         }
                     ],
-                    "outputs": sections
+                    "outputs": outputs
                 }
             }
         });
@@ -455,6 +455,7 @@ pub fn generate_lamps(
     let mut current_entity = start_entity_number;
     let mut previous_entities: HashMap<i32, u32> = HashMap::new();
     let mut top_right_lamp: u32 = 0;
+    let default_signal = json!({});
     for r in 0..grid_height as i32 {
         for c in 0..grid_width as i32 {
             let x = start_x + c;
@@ -463,19 +464,20 @@ pub fn generate_lamps(
                 continue;
             }
             let index = (r as u32 * grid_width + c as u32) as usize;
+            let signal = lamp_signals.get(index).unwrap_or(&default_signal);
             let colors = if use_grayscale {
                 json!({
                     "use_colors": true,
                     "color_mode": 1,
-                    "red_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
-                    "green_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
-                    "blue_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
+                    "red_signal": signal.clone(),
+                    "green_signal": signal.clone(),
+                    "blue_signal": signal.clone(),
                 })
             } else {
                 json!({
                     "use_colors": true,
                     "color_mode": 2,
-                    "rgb_signal": lamp_signals.get(index).cloned().unwrap_or(json!({})),
+                    "rgb_signal": signal.clone(),
                 })
             };
             let lamp = json!({
@@ -587,13 +589,8 @@ pub fn update_full_blueprint(
         let group_left = group_index * max_columns_per_group;
         let group_right = ((group_index + 1) * max_columns_per_group).min(full_width);
         let group_width = group_right - group_left;
-        let signals_subset: Vec<Value> = signals
-            .iter()
-            .cloned()
-            .take((group_width * full_height) as usize)
-            .collect();
 
-        let group_frames_sections = if use_grayscale {
+        let group_frames_outputs = if use_grayscale {
             sampled_frames
                 .chunks(frames_per_combinator as usize)
                 .map(|chunk| {
@@ -601,23 +598,23 @@ pub fn update_full_blueprint(
                         .iter()
                         .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
                         .collect();
-                    pack_grayscale_frames_to_outputs(&cropped_frames, &signals_subset, grayscale_bits)
+                    pack_grayscale_frames_to_outputs(&cropped_frames, &signals, grayscale_bits)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            let mut sections = Vec::new();
+            let mut outputs = Vec::new();
             for frame in &sampled_frames {
                 let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-                sections.push(frame_to_outputs(&cropped, &signals_subset)?);
+                outputs.push(frame_to_outputs(&cropped, &signals)?);
             }
-            sections
+            outputs
         };
 
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = if use_grayscale { next_entity } else { next_entity + 1 };
         let (group_combinators, mut group_comb_wires, new_next_entity) =
             generate_frame_combinators(
-                &group_frames_sections,
+                &group_frames_outputs,
                 &substation_occupied_y,
                 ticks_per_frame * frames_per_combinator,
                 next_entity,
@@ -633,7 +630,7 @@ pub fn update_full_blueprint(
 
         let first_lamp_entity = next_entity;
         let (group_lamps, mut group_lamp_wires, new_next_entity, top_right_lamp) = generate_lamps(
-            &signals_subset,
+            &signals,
             group_width,
             full_height,
             &occupied_cells,
@@ -692,15 +689,15 @@ pub fn update_full_blueprint(
 /// An integer representing the RGB color.
 pub fn frame_to_outputs(
     frame: &image::DynamicImage,
-    signals_subset: &[Value],
+    signals: &[Value],
 ) -> Result<Vec<Value>, JsValue> {
     let (width, height) = frame.dimensions();
     let num_pixels = (width * height) as usize;
-    if num_pixels > signals_subset.len() {
+    if num_pixels > signals.len() {
         return Err(JsValue::from_str(&format!(
             "Frame pixel count ({}) exceeds available signals ({}).",
             num_pixels,
-            signals_subset.len()
+            signals.len()
         )));
     }
     let rgb_image = frame.to_rgb8();
@@ -714,11 +711,11 @@ pub fn frame_to_outputs(
         let g = chunk[1];
         let b = chunk[2];
         let value = rgb_to_int(r, g, b);
-        let mut filter = serde_json::Map::with_capacity(3);
-        filter.insert("copy_count_from_input".to_string(), Value::Bool(false));
-        filter.insert("constant".to_string(), Value::Number(value.into()));
-        filter.insert("signal".to_string(), signals_subset[i].clone());
-        outputs.push(Value::Object(filter));
+        let mut output = serde_json::Map::with_capacity(3);
+        output.insert("copy_count_from_input".to_string(), Value::Bool(false));
+        output.insert("constant".to_string(), Value::Number(value.into()));
+        output.insert("signal".to_string(), signals[i].clone());
+        outputs.push(Value::Object(output));
     }
     Ok(outputs)
 }
