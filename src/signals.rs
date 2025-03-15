@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::sync::Arc;
 use crate::constants::*;
 use crate::models::Signal;
 use serde_json::Value;
@@ -13,7 +13,7 @@ use serde_json::Value;
 /// # Returns
 ///
 /// A new vector of signal JSON objects with added quality attributes.
-pub fn get_signals_with_quality(use_dlc: bool) -> Vec<Signal> {
+pub fn get_signals_with_quality(use_dlc: bool) -> Vec<Arc<Signal>> {
     get_signal_list(use_dlc)
         .into_iter()
         .flat_map(|signal| {
@@ -31,11 +31,11 @@ pub fn get_signals_with_quality(use_dlc: bool) -> Vec<Signal> {
                 vec![QUALITY_NORMAL, QUALITY_UNKNOWN]
             };
             for quality in qualities.iter() {
-                let signal = Signal {
-                    type_: Cow::Owned(signal["type"].as_str().unwrap().to_string()),
-                    name: Cow::Owned(signal["name"].as_str().unwrap().to_string()),
+                let signal = Arc::from(Signal {
+                    type_: Arc::new(signal["type"].as_str().unwrap().to_string()),
+                    name: Arc::new(signal["name"].as_str().unwrap().to_string()),
                     quality: Some(quality),
-                };
+                });
                 signals_vec.push(signal);
             }
             signals_vec

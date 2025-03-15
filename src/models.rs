@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 #[derive(Serialize)]
 pub struct Blueprint {
@@ -23,8 +23,8 @@ pub struct Icon {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Signal {
     #[serde(rename = "type")]
-    pub type_: Cow<'static, str>,
-    pub name: Cow<'static, str>,
+    pub type_: Arc<String>,
+    pub name: Arc<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<&'static str>,
 }
@@ -105,14 +105,14 @@ pub enum ControlBehavior {
     ColorLamp {
         use_colors: bool,
         color_mode: i8,
-        rgb_signal: Signal,
+        rgb_signal: Arc<Signal>,
     },
     GrayLamp {
         use_colors: bool,
         color_mode: i8,
-        red_signal: Signal,
-        green_signal: Signal,
-        blue_signal: Signal,
+        red_signal: Arc<Signal>,
+        green_signal: Arc<Signal>,
+        blue_signal: Arc<Signal>,
     },
 }
 
@@ -161,7 +161,7 @@ pub struct CombinatorOutput {
     pub copy_count_from_input: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constant: Option<i32>,
-    pub signal: Signal,
+    pub signal: Arc<Signal>,
 }
 
 #[derive(Serialize)]

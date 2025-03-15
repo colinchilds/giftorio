@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use crate::constants::*;
 use crate::image_processing::rgb_to_int;
 use crate::models::*;
@@ -10,6 +9,7 @@ use image::GenericImageView;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use wasm_bindgen::JsValue;
+use std::sync::Arc;
 
 /// Encodes the blueprint JSON as a Factorio blueprint string.
 ///
@@ -98,7 +98,7 @@ pub fn generate_timer(
         .with_control_behavior(ControlBehavior::Decider {
             decider_conditions: DeciderConditions {
                 conditions: vec![Condition {
-                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
                     constant: stop as i32,
                     comparator: COMPARATOR_LESS,
                     compare_type: None,
@@ -106,7 +106,7 @@ pub fn generate_timer(
                 outputs: vec![CombinatorOutput {
                     copy_count_from_input: true,
                     constant: None,
-                    signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                    signal: Arc::from(Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None }),
                 }],
             },
         })
@@ -125,11 +125,11 @@ pub fn generate_timer(
         .with_direction(DIRECTION_RIGHT)
         .with_control_behavior(ControlBehavior::Arithmetic {
             arithmetic_conditions: ArithmeticConditions {
-                first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
                 second_signal: None,
                 second_constant: Some(1),
                 operation: OPERATION_SUB,
-                output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
             },
         }),
     );
@@ -151,11 +151,11 @@ pub fn generate_timer(
             .with_direction(DIRECTION_LEFT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some((ticks_per_frame * frames_per_combinator) as i32),
                     operation: OPERATION_MOD,
-                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_S.to_string()), quality: None },
                 },
             }),
         );
@@ -171,11 +171,11 @@ pub fn generate_timer(
             )
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_S.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some(ticks_per_frame as i32),
                     operation: OPERATION_DIV,
-                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_F.to_string()), quality: None },
                 },
             }),
         );
@@ -192,11 +192,11 @@ pub fn generate_timer(
             .with_direction(DIRECTION_RIGHT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some(grayscale_bits as i32),
                     operation: OPERATION_MUL,
-                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_S), quality: None },
+                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                 },
             })
             .with_description("Calculates the bit shift necessary for the frame we should be rendering."),
@@ -348,11 +348,11 @@ pub fn generate_frame_combinators(
             .with_direction(DIRECTION_RIGHT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
-                    second_signal: Some(Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_F), quality: None }),
+                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                    second_signal: Some(Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_F.to_string()), quality: None }),
                     second_constant: None,
                     operation: OPERATION_SHIFT_R,
-                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                 },
             }),
         );
@@ -374,11 +374,11 @@ pub fn generate_frame_combinators(
             .with_direction(DIRECTION_RIGHT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some(if grayscale_bits == 1 { 1 } else if grayscale_bits == 4 { 15 } else { 255 }),
                     operation: OPERATION_AND,
-                    output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                 },
             }),
         );
@@ -397,11 +397,11 @@ pub fn generate_frame_combinators(
                 .with_direction(DIRECTION_LEFT)
                 .with_control_behavior(ControlBehavior::Arithmetic {
                     arithmetic_conditions: ArithmeticConditions {
-                        first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                        first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                         second_signal: None,
                         second_constant: Some(if grayscale_bits == 1 { 255 } else { 17 }),
                         operation: OPERATION_MUL,
-                        output_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_EACH), quality: None },
+                        output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
                     },
                 }),
             );
@@ -437,16 +437,16 @@ pub fn generate_frame_combinators(
             decider_conditions: DeciderConditions {
                 conditions: vec![
                     Condition {
-                        first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                        first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
                         constant: lower_bound,
                         comparator: COMPARATOR_GREATER_EQUAL,
                         compare_type: None,
                     },
                     Condition {
-                        first_signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(SIGNAL_T), quality: None },
+                        first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
                         constant: upper_bound,
                         comparator: COMPARATOR_LESS,
-                        compare_type: Some(OPERATION_AND),
+                        compare_type: Some(COMPARE_AND),
                     },
                 ],
                 outputs: outputs.clone(), // Cloning the outputs once per entity.
@@ -497,7 +497,7 @@ pub fn generate_frame_combinators(
 ///
 /// A tuple with lamp entities, lamp wires, the next entity number, and the top-right lamp entity.
 pub fn generate_lamps(
-    lamp_signals: &Vec<Signal>,
+    signals: Vec<Arc<Signal>>,
     grid_width: u32,
     grid_height: u32,
     occupied_cells: &HashSet<(i32, i32)>,
@@ -520,7 +520,7 @@ pub fn generate_lamps(
                 continue;
             }
             let index = (r as u32 * grid_width + c as u32) as usize;
-            let signal = lamp_signals[index].clone();
+            let signal = Arc::clone(&signals[index]);
             let colors = if use_grayscale {
                 ControlBehavior::GrayLamp {
                     use_colors: true,
@@ -588,7 +588,7 @@ pub fn update_full_blueprint(
     report_progress(0, "Starting blueprint update");
 
     // Get signals internally.
-    let signals: Vec<Signal> = get_signals_with_quality(use_dlc);
+    let signals: Vec<Arc<Signal>> = get_signals_with_quality(use_dlc);
 
     if sampled_frames.is_empty() {
         return Err(JsValue::from_str("No sampled frames"));
@@ -648,14 +648,14 @@ pub fn update_full_blueprint(
                         .iter()
                         .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
                         .collect();
-                    pack_grayscale_frames_to_outputs(&cropped_frames, &signals, grayscale_bits)
+                    pack_grayscale_frames_to_outputs(&cropped_frames, signals.clone(), grayscale_bits)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut outputs = Vec::new();
             for frame in &sampled_frames {
                 let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-                outputs.push(frame_to_outputs(&cropped, &signals)?);
+                outputs.push(frame_to_outputs(&cropped, signals.clone())?);
             }
             outputs
         };
@@ -678,7 +678,7 @@ pub fn update_full_blueprint(
         next_entity = new_next_entity;
 
         let (group_lamps, mut group_lamp_wires, new_next_entity, top_right_lamp) = generate_lamps(
-            &signals,
+            signals.clone(),
             group_width,
             full_height,
             &occupied_cells,
@@ -719,7 +719,7 @@ pub fn update_full_blueprint(
     let blueprint = Blueprint {
         blueprint: BlueprintInner {
             icons: vec![Icon {
-                signal: Signal { type_: Cow::Borrowed(SIGNAL_TYPE_VIRTUAL), name: Cow::Borrowed(DECIDER_COMBINATOR), quality: None, },
+                signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(DECIDER_COMBINATOR.to_string()), quality: None, },
                 index: 1,
             }],
             entities: all_entities,
@@ -745,7 +745,7 @@ pub fn update_full_blueprint(
 /// A vector of CombinatorOutputs for the frame
 pub fn frame_to_outputs(
     frame: &image::DynamicImage,
-    signals: &Vec<Signal>,
+    signals: Vec<Arc<Signal>>,
 ) -> Result<Vec<CombinatorOutput>, JsValue> {
     let (width, height) = frame.dimensions();
     let num_pixels = (width * height) as usize;
@@ -764,11 +764,11 @@ pub fn frame_to_outputs(
             continue;
         }
         let value = rgb_to_int(chunk[0], chunk[1], chunk[2]) as i32;
-        let signal: Signal = signals[i].clone();
+        let signal = Arc::clone(&signals[i]);
         outputs.push(CombinatorOutput {
             copy_count_from_input: false,
             constant: Some(value),
-            signal,
+            signal
         });
     }
     Ok(outputs)
@@ -787,7 +787,7 @@ pub fn frame_to_outputs(
 /// A vector of JSON objects representing output filters.
 pub fn pack_grayscale_frames_to_outputs(
     frames: &[image::DynamicImage],
-    signals: &Vec<Signal>,
+    signals: Vec<Arc<Signal>>,
     grayscale_bits: u32,
 ) -> Result<Vec<CombinatorOutput>, JsValue> {
     if frames.is_empty() {
@@ -822,7 +822,7 @@ pub fn pack_grayscale_frames_to_outputs(
                 packed_value |= (pixel_value as u32) << (8 * j);
             }
         }
-        let signal: Signal = signals[i].clone();
+        let signal = Arc::clone(&signals[i]);
         outputs.push(CombinatorOutput {
             copy_count_from_input: false,
             constant: Some(packed_value as i32),

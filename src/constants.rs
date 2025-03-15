@@ -49,7 +49,7 @@ pub const SIGNAL_T: &'static str = "signal-T";
 pub const SIGNAL_EACH: &'static str = "signal-each";
 
 /// Comparators
-pub const COMPARATOR_EQUAL: &'static str = "equal";
+pub const COMPARATOR_EQUAL: &'static str = "=";
 pub const COMPARATOR_GREATER_EQUAL: &'static str = ">=";
 pub const COMPARATOR_LESS: &'static str = "<";
 
@@ -60,3 +60,6 @@ pub const OPERATION_DIV: &'static str = "/";
 pub const OPERATION_SUB: &'static str = "-";
 pub const OPERATION_SHIFT_R: &'static str = ">>";
 pub const OPERATION_AND: &'static str = "AND";
+
+/// Compare types
+pub const COMPARE_AND: &'static str = "and";

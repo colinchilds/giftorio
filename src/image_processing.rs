@@ -1,5 +1,5 @@
 use image::AnimationDecoder;
-use image::{DynamicImage, GenericImageView, Frame};
+use image::{DynamicImage, Frame};
 use image::imageops::FilterType;
 use rayon::prelude::*;
 use std::io::Cursor;
@@ -87,6 +87,13 @@ pub fn process_image(
         sampled_indices.push(0);
     }
 
+    let (width, height) = frame_vec[0].buffer().dimensions();
+    let scale_factor = (max_size as f64 / width as f64)
+        .min(max_size as f64 / height as f64)
+        .min(1.0);
+    let new_width = (width as f64 * scale_factor).round() as u32;
+    let new_height = (height as f64 * scale_factor).round() as u32;
+
     // Second pass: process the sampled frames in parallel.
     let processed: Vec<DynamicImage> = sampled_indices
         .par_iter()
@@ -98,13 +105,6 @@ pub fn process_image(
             if grayscale_bits > 0 {
                 img = DynamicImage::ImageLuma8(img.to_luma8());
             }
-
-            let (width, height) = img.dimensions();
-            let scale_factor = (max_size as f64 / width as f64)
-                .min(max_size as f64 / height as f64)
-                .min(1.0);
-            let new_width = (width as f64 * scale_factor).round() as u32;
-            let new_height = (height as f64 * scale_factor).round() as u32;
             img.resize(new_width, new_height, FilterType::Triangle)
         })
         .collect();
