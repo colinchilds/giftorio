@@ -1,7 +1,6 @@
-use crate::{
-    blueprint::{constants::*, macros::*, models::*},
-    macros::log,
-};
+use crate::blueprint::{constants::*, macros::*, models::*};
+use crate::constants::FACTORIO_EPSILON;
+use crate::models::ImageRotation::*;
 use glam::{dvec2, DVec2};
 use std::sync::Arc;
 
@@ -89,57 +88,92 @@ impl SubstationOccupied {
 ///
 /// A tuple with substation entities, their wires, occupied grid cells, and the next entity number.
 pub fn generate_substations(
-    occupied: &mut SubstationOccupied,
+    occupied: &SubstationOccupied,
     base_ent_n: u32,
     args: &BlueprintArgs,
 ) -> (Vec<Entity>, Vec<Wire>, u32) {
     let mut subs: Vec<Entity> = Vec::new();
     let mut wires: Vec<[u32; 4]> = Vec::new();
-    let mut curr_ent_n: u32 = base_ent_n;
+    let mut curr_ent_n = base_ent_n;
     let cov = occupied.coverage();
 
     if !occupied.include_substations || cov == 0.0 {
         return (subs, wires, base_ent_n);
     }
 
-    log!(
-        "Sub qual: {}",
-        occupied.quality.as_ref().unwrap_or(&"...".into())
-    );
-
-    // f64 doesn't implement Ord, so we use total_cmp (which also sorts NaN)
-    occupied.requests.sort_by(|a, b| a.y.total_cmp(&b.y)); // Group by sorted y
-    occupied.requests.sort_by(|a, b| a.x.total_cmp(&b.x)); // Preserves previous order
+    // f64 doesn't implement Ord, so use total_cmp.
+    // Sort by Y first, then X.
+    let mut requests = occupied.requests.clone();
+    requests.sort_by(|a, b| a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x)));
 
     let get_tag = |pos: DVec2| format!("sub-({},{})", pos.x, pos.y);
-    let mut prev_y: Option<f64> = None;
-    let mut did_connect = false;
+    let horiz = true ^ matches!(args.image_rotation, Deg90 | Deg270);
 
-    for req in &occupied.requests {
-        let pos = occupied.start_pos + req;
-        let tag = get_tag(pos);
-        let mut en = Entity::new(curr_ent_n, Arc::clone(&SUBSTATION), pos);
-        en.quality = occupied.quality.clone();
-        subs.push(en.with_tag(&tag));
-
-        // Connect wires to substations above / substations to the left
-        for prev_pos in [pos - dvec2(cov, 0.0), pos - dvec2(0.0, cov)] {
-            if let Some(prev) = subs.iter().find(|e| e.position.abs_diff_eq(prev_pos, 0.01)) {
-                if !did_connect {
-                    wires.push(mkwires!(C subs; IN get_tag(prev.position.with_y(pos.y)) => IN tag));
-                }
-                if true {
-                    wires.push(mkwires!(C subs; IN get_tag(prev.position.with_x(pos.x)) => IN tag));
-                }
-            }
-        }
-        if let Some(prev_y) = prev_y {
-            if (prev_y - pos.y).abs() > 0.001 {
-                did_connect = false;
-            }
-        }
+    // Create all substations first. This lets us determine the topology
+    // from the actual generated positions without making assumptions
+    // about the shape of the layout.
+    for req in &requests {
+        let pos = occupied.start_pos + *req;
+        let en = Entity::new(curr_ent_n, Arc::clone(&SUBSTATION), pos).with_tag(&get_tag(pos));
+        subs.push(en.with_quality(occupied.quality.clone()));
         curr_ent_n += 1;
-        prev_y = Some(pos.y);
+    }
+
+    // Find an actual neighbouring substation at the given offset.
+    //
+    // This deliberately searches by position rather than assuming that
+    // the layout is rectangular or that every row has the same length.
+    let find_nb = |pos: DVec2, delta: DVec2| -> Option<&Entity> {
+        let target = pos + delta;
+        subs.iter()
+            .find(|e| e.position.abs_diff_eq(target, FACTORIO_EPSILON))
+    };
+
+    let (preferred_delta, cross_neg, cross_pos) = if horiz {
+        (dvec2(-cov, 0.0), dvec2(0.0, -cov), dvec2(0.0, cov))
+    } else {
+        (dvec2(0.0, -cov), dvec2(-cov, 0.0), dvec2(cov, 0.0))
+    };
+
+    let find_best = |a: &&Entity, b: &&Entity| {
+        let (a, b) = (a.position, b.position);
+        if horiz {
+            a.x.total_cmp(&b.x).then_with(|| a.y.total_cmp(&b.y))
+        } else {
+            a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x))
+        }
+    };
+
+    let anchor = subs
+        .iter()
+        .filter(|s| {
+            find_nb(s.position, cross_neg).is_some() && find_nb(s.position, cross_pos).is_some()
+        })
+        .min_by(find_best);
+
+    let crossing_coord = anchor
+        .or_else(|| {
+            subs.iter()
+                .filter(|s| find_nb(s.position, cross_pos).is_some())
+                .min_by(find_best)
+        })
+        .map(|s| if horiz { s.position.x } else { s.position.y });
+
+    for sub in &subs {
+        let pos = sub.position;
+        let tag = get_tag(pos);
+
+        if let Some(prev) = find_nb(pos, preferred_delta) {
+            wires.push(mkwires!(C subs; IN get_tag(prev.position) => IN tag));
+        }
+
+        if let Some(coord) = crossing_coord {
+            if (coord - if horiz { pos.x } else { pos.y }).abs() <= FACTORIO_EPSILON {
+                if let Some(prev) = find_nb(pos, cross_neg) {
+                    wires.push(mkwires!(C subs; IN get_tag(prev.position) => IN tag));
+                }
+            }
+        }
     }
 
     return (subs, wires, curr_ent_n);

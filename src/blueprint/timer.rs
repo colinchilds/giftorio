@@ -26,7 +26,7 @@ pub fn generate_timer(
 
     let gray_bits = args.grayscale_bits;
     let mut ents: Vec<Entity> = Vec::new();
-    let mut wires: Vec<[u32; 4]> = Vec::new();
+    let mut wires: Vec<Wire> = Vec::new();
 
     let mut en = Entity::new(1, Arc::clone(&CONSTANT_COMB), TIMER1_POS).with_direction(DIR_R);
     let sections = Sections {

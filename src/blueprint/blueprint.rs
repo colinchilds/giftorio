@@ -2,7 +2,6 @@ use crate::blueprint::{
     combinator::*, constants::*, lamp::*, models::*, signals::*, substation::*, timer::*, util::*,
 };
 use crate::image_processing::FrameData;
-use crate::macros::log;
 use crate::progress::set_progress;
 use glam::{dvec2, uvec2, UVec2};
 use std::{io, sync::Arc};
@@ -105,6 +104,7 @@ impl<'a> BlueprintGenerator<'a> {
         let max_lamp_cols_per_grp = if matches!(args.mode, Mode::Static { combs: false, .. }) {
             frame_dim.x
         } else {
+            // Constant combinators can only hold up to 1000 signals
             ((signals.len() as u32).min(if use_const_cbs { 1000 } else { u32::MAX }) / frame_dim.y)
                 .min(args.max_group_size.unwrap_or(frame_dim.x))
         };
@@ -139,10 +139,10 @@ impl<'a> BlueprintGenerator<'a> {
             max_cols_per_grp: max_lamp_cols_per_grp,
             n_groups,
             occupied: SubstationOccupied::new(sub_base_pos, &args),
-            should_generate_cbs: match args.mode {
-                Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid => false,
-                _ => true,
-            },
+            should_generate_cbs: !matches!(
+                args.mode,
+                Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid
+            ),
             signals,
             state: BlueprintState::Start,
         })
@@ -402,8 +402,6 @@ impl<'a> BlueprintGenerator<'a> {
             let (top_left_lamp_ent_n, top_right_lamp_ent_n) = io_ents_n;
             ent_data.next_ent_n = new_next_ent_n;
 
-            log!("group_left: {grp_left}");
-
             if self.should_generate_cbs {
                 let info = info.as_mut().unwrap();
                 let (other_ents, data_combs, wires, (in_ent_n, out_ent_n, new_base_ent_n)) =
@@ -435,7 +433,9 @@ impl<'a> BlueprintGenerator<'a> {
                     }
 
                     // Data wire
-                    if matches!(args.mode, Mode::Static { const_cb: true, .. }) {
+                    if args.grayscale_bits == 0
+                        && matches!(args.mode, Mode::Static { const_cb: true, .. })
+                    {
                         wires.push([top_left_lamp_ent_n, WIRE_G, cb_out_ent_n, WIRE_G]);
                     } else {
                         wires.push([top_left_lamp_ent_n, WIRE_G, cb_out_ent_n, WIRE_OUT_G]);

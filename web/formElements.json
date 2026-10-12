@@ -20,13 +20,26 @@
     "name": "Static Image Mode",
     "type": "select",
     "options": {
-      "constant": { "name": "Constant", "tooltip": "Use constant combinators for all lamps, with no timing signals." },
-      "decider": { "name": "Decider", "tooltip": "Use decider combinators for all lamps, with no timing signals." },
+      "constant": {
+        "name": "Constant",
+        "tooltip": "(Not recommended) Use constant combinators for all lamps, with no timing signals. Constant combinators can only hold up to 1000 signals. Prefer using Deciders instead if possible.",
+        "splash": "Only applies to static images."
+      },
+      "decider": {
+        "name": "Decider",
+        "tooltip": "Use decider combinators for all lamps, with no timing signals.",
+        "splash": "Only applies to static images."
+      },
       "lamps": {
         "name": "Lamps Only",
-        "tooltip": "Use only lamps for the image. This reduces filesize, but colour depth is greatly reduced as lamps cannot be fully black unless they use signals from the circuit network."
+        "tooltip": "Use only lamps for the image. This reduces filesize, but colour depth is greatly reduced as lamps cannot be fully black unless they use signals from the circuit network.",
+        "splash": "Only applies to static images."
       },
-      "video": { "name": "1 Frame", "tooltip": "Renders the input image as a 1 FPS, 1-second video with 1 frame." }
+      "video": {
+        "name": "1 Frame",
+        "tooltip": "Renders the input image as a 1 FPS, 1-second video with 1 frame. This is not recommended as the output image will (intentionally) flicker black every second.",
+        "splash": "Only applies to static images."
+      }
     },
     "tooltip": "The blueprint parts to include. Changes if the input file is an image or a video."
   },

@@ -2,8 +2,6 @@
 
 use crate::macros::lazy_const;
 
-pub const FACTORIO_VERSION_PREFIX: &'static str = "0";
-
 /// Timer entity positions.
 pub const TIMER1_POS: (f64, f64) = (-2.5, -3.0);
 pub const TIMER2_POS: (f64, f64) = (-1.5, -3.0);

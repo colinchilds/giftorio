@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 
 #[derive(Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct BlueprintBook {
     pub icons: Option<Vec<Icon>>,
     pub active_index: u32,
@@ -177,6 +176,10 @@ impl Entity {
         self.direction = Some(direction);
         self
     }
+    pub fn with_quality(mut self, quality: Option<Arc<str>>) -> Self {
+        self.quality = quality;
+        self
+    }
 
     /// Custom tag for the entity. This does not get serialized.
     ///
@@ -187,10 +190,7 @@ impl Entity {
     }
 
     fn is_none_or_0(value: &Option<u32>) -> bool {
-        match value {
-            None | Some(0) => true,
-            _ => false,
-        }
+        return matches!(value, None | Some(0));
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -358,9 +358,9 @@ impl Condition {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CombinatorOutput {
     pub copy_count_from_input: Option<bool>,
+    pub signal: Option<Arc<Signal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constant: Option<i32>,
-    pub signal: Option<Arc<Signal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub networks: Option<NetworkFilters>,
 }
@@ -388,28 +388,10 @@ pub struct NetworkFilters {
 
 #[allow(dead_code)]
 impl NetworkFilters {
-    pub fn all() -> Self {
-        Self {
-            red: true,
-            green: true,
-        }
-    }
-    pub fn green() -> Self {
-        Self {
-            red: false,
-            green: true,
-        }
-    }
-    pub fn none() -> Self {
-        Self {
-            red: false,
-            green: false,
-        }
-    }
-    pub fn red() -> Self {
-        Self {
-            red: true,
-            green: false,
-        }
+    #[inline(always)]
+    pub fn new(modes: &str) -> Self {
+        let red = modes.contains('r');
+        let green = modes.contains('g');
+        Self { red, green }
     }
 }

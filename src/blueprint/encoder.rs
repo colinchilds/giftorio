@@ -1,4 +1,5 @@
-use crate::blueprint::{blueprint::BlueprintGenerator, constants::*};
+use crate::blueprint::blueprint::BlueprintGenerator;
+use crate::constants::FACTORIO_VERSION_PREFIX;
 use crate::image_processing::FrameData;
 use crate::models::{BlueprintArgs, OutputFormat};
 use crate::progress::report_progress;

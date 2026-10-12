@@ -37,16 +37,15 @@ pub fn generate_combinators(
     let mut pos_dict: HashMap<String, &Entity> = HashMap::new();
     let mut base_pos = start_pos;
     let use_compact_layout = max_cols_per_grp < 2;
+    let use_delta_comp = args.signal_compression == Some(SignalCompression::Delta);
 
     for d in &comb_pos_data {
         if d.dim.x <= max_cols_per_grp as f64
-            && ((d.compression == Some(SignalCompression::Delta))
-                == (args.signal_compression == Some(SignalCompression::Delta)))
+            && use_delta_comp == matches!(d.compression, Some(SignalCompression::Delta))
             && d.grayscale_bits.contains(&args.grayscale_bits)
+            && d.dim.x > best_pos_data.map_or(0.0, |v| v.dim.x)
         {
-            if d.dim.x > best_pos_data.map_or(0.0, |v| v.dim.x) {
-                best_pos_data = Some(d);
-            }
+            best_pos_data = Some(d);
         }
     }
 
@@ -59,14 +58,11 @@ pub fn generate_combinators(
     }
     let mut first_connection_ent_n: Option<u32> = None;
     let mut curr_ent_n = base_ent_n;
-    let mut other_ents = Vec::with_capacity(3); // shifters / etc
-    let mut data_cbs = Vec::with_capacity(ticks_per_group as usize * 2); // data entities
-    let mut wires = Vec::with_capacity(ticks_per_group as usize * 3 + 4);
-    let use_delta_comp = args
-        .signal_compression
-        .as_ref()
-        .is_some_and(|c| *c == SignalCompression::Delta);
+    let mut other_ents = Vec::new(); // shifters / etc
+    let mut data_cbs = Vec::new(); // data entities
+    let mut wires = Vec::new();
 
+    let use_const_cbs = matches!(args.mode, Mode::Static { const_cb: true, .. });
     let gray_bits = args.grayscale_bits;
     let height = best_pos_data.map_or(0.0, |v| v.dim.y);
     let base_offset = base_pos; // Add a constant offset on dimensions
@@ -76,19 +72,19 @@ pub fn generate_combinators(
     // Finds the position for the combinator with the given tag, based off the blueprint string
     // we decoded earlier
     let get_pos = |tag: &str| -> DVec2 {
-        pos_dict.get(tag).expect(&format!("No '{tag}'!")).position + base_offset - height
+        let mut pos = pos_dict.get(tag).expect(&format!("No '{tag}'!")).position + base_offset;
+        pos.y -= height;
+        pos
     };
     let get_dir = |tag: &str| -> u32 { pos_dict.get(tag).unwrap().direction.unwrap_or(0) };
 
     // Note: signal compression is auto-disabled if generating a static image
     if use_delta_comp {
         let mut en = Entity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("delay"));
+        let cb_output = CombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
         let dc = DeciderConditions {
             conditions: Some(vec![Condition::new(SIG_EACH.clone(), 0, COMP_NE)]),
-            outputs: Some(vec![CombinatorOutput::new(
-                Arc::from(SIG_EACH.clone()),
-                None,
-            )]),
+            outputs: Some(vec![cb_output]),
         };
         en = en.with_tag("delay comb").with_direction(get_dir("delay"));
         en = en.with_control_behavior(ControlBehavior::from_decider_conditions(dc));
@@ -98,19 +94,16 @@ pub fn generate_combinators(
 
         let desc = "Memory cell for delta compression. This holds all the signal values, then allows us to set any signal value by applying a delta. We can reach any number in one tick using overflow logic.";
         let mut en = Entity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("memory"));
+        let cb_output = CombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
         let dc = DeciderConditions {
             conditions: Some(vec![
                 Condition::new(SIG_EACH.clone(), 0, COMP_NE)
-                    .with_first_signal_networks(NetworkFilters::green()),
+                    .with_first_signal_networks(NetworkFilters::new("g")),
                 Condition::new(args.timing_sigs.t.clone(), 0, COMP_NE)
                     .with_compare_type(COMP_AND)
-                    .with_first_signal_networks(NetworkFilters::red()),
+                    .with_first_signal_networks(NetworkFilters::new("r")),
             ]),
-            outputs: Some(vec![CombinatorOutput::new(
-                Arc::from(SIG_EACH.clone()),
-                None,
-            )
-            .with_networks(NetworkFilters::green())]),
+            outputs: Some(vec![cb_output.with_networks(NetworkFilters::new("g"))]),
         };
         en = en.with_direction(get_dir("memory"));
         en = en.with_control_behavior(ControlBehavior::from_decider_conditions(dc));
@@ -173,7 +166,7 @@ pub fn generate_combinators(
     } else {
         entity_idx_by_tag!(other_ents, "memory comb").unwrap_or((curr_ent_n - 1).max(base_ent_n))
     };
-    let cb_midpoint = if matches!(args.mode, Mode::Static { const_cb: true, .. }) {
+    let cb_midpoint = if use_const_cbs {
         dvec2(0.5, -0.5)
     } else if use_compact_layout {
         dvec2(0.5, -1.0) // Base position for vertical layout
@@ -194,14 +187,10 @@ pub fn generate_combinators(
     let y_offsets = y_offsets.collect::<Vec<_>>();
     let hitbox_offsets = x_offsets.flat_map(|x| y_offsets.iter().map(move |&y| dvec2(x, y)));
     let hitbox_offsets = hitbox_offsets.collect::<Vec<_>>();
-    let target_name = if matches!(args.mode, Mode::Static { const_cb: true, .. }) {
-        CONSTANT_COMB
-    } else {
-        DEC_CB
-    };
+    let target_name = if use_const_cbs { CONSTANT_COMB } else { DEC_CB };
 
     // Generates combinators up to down, then left to right.
-    for chunk_i in 0..ticks_per_group as usize {
+    for tick_i in 0..ticks_per_group as usize {
         loop {
             offset = cb_midpoint * DVec2::from(1 + 2 * grid_pos); // Set target midpoint
             curr_pos = base_pos + offset;
@@ -217,7 +206,7 @@ pub fn generate_combinators(
         }
 
         let mut en = Entity::new(curr_ent_n, Arc::clone(&target_name), curr_pos);
-        if chunk_i == 0 {
+        if tick_i == 0 {
             en = en.with_tag("first data comb");
             if use_delta_comp {
                 let ent_n = entity_idx_by_tag!(other_ents, "memory comb").expect("No memory comb!");
@@ -227,19 +216,23 @@ pub fn generate_combinators(
                 wires.push([curr_ent_n, WIRE_OUT_G, ent_n, WIRE_G]);
             }
         }
-        data_cbs.push(en.with_direction(if use_compact_layout { DIR_U } else { DIR_R }));
+        data_cbs.push(en.with_direction(if use_const_cbs {
+            DIR_D
+        } else if use_compact_layout {
+            DIR_U
+        } else {
+            DIR_R
+        }));
 
         let x_i = grid_pos.x as usize;
-        let prefer_horizontal = true ^ matches!(args.image_rotation, Deg0 | Deg180);
+        let prefer_horiz = true ^ matches!(args.image_rotation, Deg0 | Deg180);
         let mut cands: Vec<usize> = Vec::new();
 
-        if grid_pos.y > 0 && (!prefer_horizontal || grid_pos.x == 0) {
+        if grid_pos.y > 0 && (!prefer_horiz || grid_pos.x == 0) {
             cands.push(x_i); // Vertical connection
         }
         if grid_pos.x > 0
-            && (prefer_horizontal
-                || prev_ents_n[x_i].is_none()
-                || prev_prev_ents_n[x_i - 1].is_none())
+            && (prefer_horiz || prev_ents_n[x_i].is_none() || prev_prev_ents_n[x_i - 1].is_none())
         {
             cands.push(x_i - 1); // Horizontal connection
         }

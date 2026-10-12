@@ -16,7 +16,7 @@
   "rotation": 0,
   "signalCompressionType": "none",
   "signalSorting": "none",
-  "staticImageMode": "constant",
+  "staticImageMode": "decider",
   "substationQuality": null,
   "targetFps": 15,
   "temporalCompressionWindow": 300,
