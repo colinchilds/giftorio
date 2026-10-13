@@ -10,10 +10,7 @@ use base64::{
     write::EncoderWriter,
 };
 use flate2::{write::ZlibEncoder, Compression};
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+use std::io::Write;
 use wasm_bindgen::UnwrapThrowExt;
 
 pub struct BlueprintEncoder<'a> {
