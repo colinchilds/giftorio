@@ -1,11 +1,11 @@
 use crate::blueprint::{
-    combinator::*, constants::*, lamp::*, models::*, signals::*, substation::*, timer::*, util::*,
+    combinator::*, constants::*, lamp::*, models::*, power_pole::*, signals::*, timer::*, util::*,
 };
 use crate::image_processing::FrameData;
 use crate::progress::set_progress;
-use glam::{dvec2, ivec2, uvec2, DVec2, IVec2, UVec2};
+use glam::{dvec2, uvec2, UVec2};
 use std::{io, sync::Arc};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsValue, UnwrapThrowExt};
 
 /// How many entities to encode in one go. Encoding more entities at once is faster, but uses more memory.
 const ENCODE_CHUNK_SIZE: usize = 100;
@@ -21,8 +21,7 @@ pub struct BlueprintGenerator<'a> {
     dim: UVec2,
     max_cols_per_grp: u32,
     n_groups: u32,
-    occupied: SubstationOccupied,
-    pos_mul: IVec2,
+    occupied: PowerPoleOccupied,
     should_generate_cbs: bool,
     signals: Vec<Arc<Signal>>,
     state: BlueprintState,
@@ -126,7 +125,6 @@ impl<'a> BlueprintGenerator<'a> {
                 })
                 .collect();
         }
-        let sub_base_pos = dvec2(-1.0, 1.0 - args.lamp_margin_y as f64);
 
         Ok(Self {
             args,
@@ -139,13 +137,7 @@ impl<'a> BlueprintGenerator<'a> {
             dim: frame_dim,
             max_cols_per_grp: max_lamp_cols_per_grp,
             n_groups,
-            occupied: SubstationOccupied::new(sub_base_pos, &args),
-            pos_mul: match args.image_rotation {
-                ImageRotation::Deg0 => ivec2(1, 1),
-                ImageRotation::Deg90 => ivec2(1, -1),
-                ImageRotation::Deg180 => ivec2(-1, -1),
-                ImageRotation::Deg270 => ivec2(-1, 1),
-            },
+            occupied: PowerPoleOccupied::new(dvec2(0.0, -(args.lamp_margin_y as f64)), &args),
             should_generate_cbs: !matches!(
                 args.mode,
                 Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid
@@ -153,6 +145,41 @@ impl<'a> BlueprintGenerator<'a> {
             signals,
             state: BlueprintState::Start,
         })
+    }
+
+    /// Calculates the required position for the given entity to counteract the rotation of the image.
+    fn transform_entity(args: &BlueprintArgs, en: &mut Entity) {
+        let mut pos = en.position;
+        pos = match args.flipped_axes {
+            FlippedAxes::X => dvec2(-pos.x, pos.y),
+            FlippedAxes::Y => dvec2(pos.x, -pos.y),
+            FlippedAxes::Both => dvec2(-pos.x, -pos.y),
+            _ => pos,
+        };
+        pos = match args.image_rotation {
+            ImageRotation::Deg90 => dvec2(pos.y, -pos.x),
+            ImageRotation::Deg180 => dvec2(-pos.x, -pos.y),
+            ImageRotation::Deg270 => dvec2(-pos.y, pos.x),
+            _ => pos,
+        };
+
+        en.position = pos;
+        en.direction = en.direction.map(|v| {
+            let mut v = v as i64;
+            v += match args.image_rotation {
+                ImageRotation::Deg90 => 12,
+                ImageRotation::Deg180 => 8,
+                ImageRotation::Deg270 => 4,
+                _ => 0,
+            };
+            v += match args.flipped_axes {
+                FlippedAxes::X if (v + 4) % 8 == 0 => 8,
+                FlippedAxes::Y if (v + 0) % 8 == 0 => 8,
+                FlippedAxes::Both => 8,
+                _ => 0,
+            };
+            (v % 16) as u32
+        });
     }
 
     fn get_signal_data(args: &BlueprintArgs) -> Vec<Arc<Signal>> {
@@ -282,19 +309,23 @@ impl<'a> BlueprintGenerator<'a> {
                         }
                     }
 
-                    let ent_data = &mut self.entity_data;
-                    for en in ent_data.ents.iter() {
-                        self.occupied.request(en.position); // Request substations to power entities
+                    for en in self.entity_data.ents.iter() {
+                        self.occupied.request(en.position); // Request power poles to power entities
                     }
-                    let (ents, wires, _) =
-                        generate_substations(&mut self.occupied, ent_data.next_ent_n, &self.args);
-                    ent_data.ents.extend(ents);
-                    ent_data.wires.extend(wires);
+                    let (ents, wires, _) = self
+                        .occupied
+                        .generate_power_poles(self.entity_data.next_ent_n, &self.args);
+                    self.entity_data.ents.extend(ents);
+                    self.entity_data.wires.extend(wires);
+
+                    for en in self.entity_data.ents.iter_mut() {
+                        Self::transform_entity(&self.args, en);
+                    }
 
                     // Write remaining entities. Data combinators were NOT included in self.entity_data.ents
-                    for ents in ent_data.ents.chunks(ENCODE_CHUNK_SIZE) {
-                        write_to(&mut writer, b",")?;
-                        write_json_trimmed_to(&mut writer, &ents)?; // Remove braces
+                    for ents in self.entity_data.ents.chunks(ENCODE_CHUNK_SIZE) {
+                        write_to(&mut writer, b",").unwrap_throw();
+                        write_json_trimmed_to(&mut writer, &ents).unwrap_throw();
                     }
 
                     write_to(&mut writer, b"],\"wires\":[")?;
@@ -398,11 +429,11 @@ impl<'a> BlueprintGenerator<'a> {
             let grp_left = group_i * self.max_cols_per_grp;
             let grp_width = (self.max_cols_per_grp).min(self.dim.x - grp_left);
             let (mut cb_in_ent_n, mut cb_out_ent_n) = (0, 0);
-            let (grp_lamps, mut grp_lamp_wires, new_next_ent_n, io_ents_n) = generate_lamps(
+            let (mut grp_lamps, mut grp_lamp_wires, new_next_ent_n, io_ents_n) = generate_lamps(
                 &signals,
                 uvec2(grp_width, self.dim.y),
                 matches!(self.args.mode, Mode::Static { combs: false, .. }).then(
-                    || info.as_mut().unwrap().curr_frame.clone(), // Pass image data to lamp generation
+                    || info.as_ref().unwrap().curr_frame.clone(), // Pass image data to lamp generation
                 ),
                 &mut self.occupied,
                 ent_data.next_ent_n,
@@ -467,6 +498,11 @@ impl<'a> BlueprintGenerator<'a> {
             if group_i > 0 {
                 write_to(&mut writer, b",")?;
             }
+
+            for en in grp_lamps.iter_mut() {
+                Self::transform_entity(&self.args, en);
+            }
+
             write_json_trimmed_to(&mut writer, &grp_lamps)?;
             ent_data.wires.extend(grp_lamp_wires);
         }
@@ -476,8 +512,6 @@ impl<'a> BlueprintGenerator<'a> {
 
         Ok(())
     }
-
-    fn map_position(&self, pos: DVec2) {}
 
     fn populate_data(&mut self, mut writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let info = self.frame_info.as_mut().unwrap();
@@ -544,8 +578,8 @@ impl<'a> BlueprintGenerator<'a> {
                     );
                 }
                 let state = &mut info.patch_states[group_i as usize]; // Individual state for each group of lamps
-                let frame_sigs: Vec<i32>;
                 let data_combs = &group_data_combs[group_i as usize];
+                let frame_sigs: Vec<i32>;
 
                 let grp_left = group_i * max_cols_per_grp;
                 let grp_right = ((group_i + 1) * max_cols_per_grp).min(self.dim.x);
@@ -679,8 +713,9 @@ impl<'a> BlueprintGenerator<'a> {
         }
 
         if output_ents.len() > 0 {
-            for en in output_ents.iter() {
+            for en in output_ents.iter_mut() {
                 self.occupied.request(en.position); // Request powerage for generated combinators
+                Self::transform_entity(&self.args, en);
             }
             write_to(&mut writer, b",")?;
             write_json_trimmed_to(&mut writer, &output_ents)?; // Remove braces

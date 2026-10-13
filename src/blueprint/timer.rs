@@ -27,7 +27,6 @@ pub fn generate_timer(
     let gray_bits = args.grayscale_bits;
     let mut ents: Vec<Entity> = Vec::new();
     let mut wires: Vec<Wire> = Vec::new();
-
     let mut en = Entity::new(1, Arc::clone(&CONSTANT_COMB), TIMER1_POS).with_direction(DIR_R);
     let sections = Sections {
         sections: vec![Section {
@@ -66,7 +65,7 @@ pub fn generate_timer(
         let conds = arithmetic_conds!(sig_t % (ticks_per_frame * frames_per_comb) => sig_s);
         ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
 
-        let en = Entity::new(5, Arc::clone(&ARI_CB), TIMER5_POS);
+        let en = Entity::new(5, Arc::clone(&ARI_CB), TIMER5_POS).with_direction(DIR_U);
         let conds = arithmetic_conds!(sig_s / ticks_per_frame => sig_f);
         ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
 

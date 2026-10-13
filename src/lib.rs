@@ -33,14 +33,14 @@ pub async fn run_blueprint(
     use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
     use image_processing::FrameData;
     use models::*;
-    use std::{
-        collections::VecDeque,
-        sync::{Arc, Mutex},
-    };
-    use streaming_writer::{ChunkQueue, StreamingWriter};
+    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+    use streaming_writer::StreamingWriter;
 
     let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
     let mut frame_data: Option<FrameData> = None;
+    let promises: Rc<RefCell<VecDeque<Vec<js_sys::Promise>>>> =
+        Rc::new(RefCell::new(VecDeque::new()));
+    let promise_q = Rc::clone(&promises);
 
     if matches!(args.mode, Mode::Static { .. }) {
         args.signal_compression = None;
@@ -52,45 +52,39 @@ pub async fn run_blueprint(
         frame_data = Some(FrameData::new(image_data, &args)?);
     }
 
-    let chunks: ChunkQueue = Arc::new(Mutex::new(VecDeque::new()));
-    let writer = StreamingWriter::new(5 * 1024 * 1024, Arc::clone(&chunks));
+    let writer = StreamingWriter::new(1 * 1000 * 1000, move |chunk| {
+        let data = js_sys::Uint8Array::from(chunk.as_slice());
+        let promise = send_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
+        let promise = js_sys::Promise::from(promise);
+        promise_q.borrow_mut().back_mut().map(|q| q.push(promise));
+    });
 
     // Yields JSON or compressed blueprint in chunks
     let gen = BlueprintGenerator::new(frame_data, &args)?;
     let mut encoder = BlueprintEncoder::new(gen, &args, writer)?;
 
-    // Directly write the chunk to the disk (no storing a full buffer in RAM)
-
-    // Generate and send full chunks as they become available.
-    while let Some(_) = encoder.next()? {
-        loop {
-            let chunk = chunks.lock().unwrap().pop_front();
-            let Some(chunk) = chunk else {
-                break;
-            };
-
-            let buf = js_sys::Uint8Array::from(chunk.as_slice());
-            let promise = send_chunk.call1(&JsValue::NULL, &buf)?;
-            wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
+    let flush = async || -> Result<(), JsValue> {
+        // Get the earliest list of promises from the queue
+        if let Some(mut q) = std::mem::take(&mut *promises.borrow_mut()).pop_front() {
+            for promise in q.drain(..) {
+                wasm_bindgen_futures::JsFuture::from(promise).await?;
+            }
         }
+        Ok(())
+    };
+
+    promises.borrow_mut().push_back(vec![]);
+
+    // `encoder.next()` may generate a series of chunks
+    while let Some(_) = encoder.next()? {
+        flush().await?; // Wait for all those chunks to be sent
+        promises.borrow_mut().push_back(vec![]); // Repopulate
     }
 
-    // Finalize zlib/Base64, then emit the remaining partial chunk.
     let mut stream_writer = encoder.finish()?;
     stream_writer.finish();
 
-    // IMPORTANT: send the final chunk(s), including small outputs
-    // that never reached the 5 MiB threshold.
-    loop {
-        let chunk = chunks.lock().unwrap().pop_front();
-        let Some(chunk) = chunk else {
-            break;
-        };
-
-        let buf = js_sys::Uint8Array::from(chunk.as_slice());
-        let promise = send_chunk.call1(&JsValue::NULL, &buf)?;
-        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
-    }
+    flush().await?; // Flush tail
 
     let obj = js_sys::Object::new();
     Ok(JsValue::from(obj))

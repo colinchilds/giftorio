@@ -57,6 +57,7 @@ pub fn color_frame_to_outputs(frame: &image::DynamicImage) -> Result<Vec<i32>, J
     #[cfg(not(target_arch = "wasm32"))] // scalar fallback
     {
         use crate::image_processing::rgb_to_int;
+
         let rgb = frame.to_rgb8();
         let mut outputs = Vec::with_capacity((frame.width() * frame.height()) as usize);
 
@@ -96,7 +97,7 @@ pub fn grayscale_frames_to_outputs(
     match grayscale_bits {
         1 => {
             for i in 0..num_pixels {
-                let mut packed = 0u32;
+                let mut packed: u32 = 0;
                 for (j, img) in luma_images.iter().enumerate() {
                     packed |= ((img.as_raw()[i] >= GRAYSCALE_THRESH) as u32) << j;
                 }
@@ -105,7 +106,7 @@ pub fn grayscale_frames_to_outputs(
         }
         4 => {
             for i in 0..num_pixels {
-                let mut packed = 0u32;
+                let mut packed: u32 = 0;
                 for (j, img) in luma_images.iter().enumerate() {
                     packed |= ((img.as_raw()[i] >> 4) as u32) << (j * 4);
                 }
@@ -114,7 +115,7 @@ pub fn grayscale_frames_to_outputs(
         }
         8 => {
             for i in 0..num_pixels {
-                let mut packed = 0u32;
+                let mut packed: u32 = 0;
                 for (j, img) in luma_images.iter().enumerate() {
                     packed |= (img.as_raw()[i] as u32) << (j * 8);
                 }

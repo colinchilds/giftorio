@@ -14,8 +14,7 @@ thread_local! {
 ///
 /// # Arguments
 ///
-/// * `signals_csv` - The raw CSV string of signals, as a Uint8Array.
-/// * `qualities_csv` - Raw CSV string of qualities, as a Uint8Array.
+/// * `data_json` - The raw JSON string of signals, as a Uint8Array.
 ///
 /// # Returns
 ///

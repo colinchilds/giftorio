@@ -17,7 +17,7 @@ export interface FactorioSelectProps extends Omit<JSX.SelectHTMLAttributes<HTMLS
 export default function FactorioSelect(props: FactorioSelectProps) {
   let selectProps: JSX.SelectHTMLAttributes<HTMLSelectElement>;
   {
-    const { formArgs, key, name, onChange, options, tooltip, splash, ref, ..._selectProps } = props;
+    const { formArgs, key, name, disabled, onChange, options, tooltip, splash, ref, ..._selectProps } = props;
     selectProps = _selectProps;
   }
 
@@ -55,8 +55,16 @@ export default function FactorioSelect(props: FactorioSelectProps) {
           <Tooltip name={props.name!} tooltip={props.tooltip} splash={props.splash} options={props.options} />
         </label>
       </Show>
-      {/* @ts-ignore */}
-      <select id={props.key} name={props.key} prop:value={currValue()} onChange={handleChange} title={selectTitle()} {...selectProps}>
+      <select
+        // @ts-ignore
+        prop:value={currValue()}
+        id={props.key}
+        name={props.key}
+        onChange={handleChange}
+        disabled={props.disabled}
+        title={selectTitle()}
+        {...selectProps}
+      >
         <For each={props.options}>
           {([k, v]) => (
             <option title={typeof v === "string" ? undefined : v.tooltip} value={k}>

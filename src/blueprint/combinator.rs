@@ -1,5 +1,4 @@
-use crate::blueprint::{constants::*, macros::*, models::*, substation::*, util::*};
-use crate::models::ImageRotation::*;
+use crate::blueprint::{constants::*, macros::*, models::*, power_pole::*, util::*};
 use glam::{dvec2, DVec2, IVec2};
 use std::{collections::HashMap, io::Read, sync::Arc};
 use wasm_bindgen::*;
@@ -8,13 +7,12 @@ use wasm_bindgen::*;
 ///
 /// # Arguments
 ///
-/// * `occupied_y` - Set of Y coordinates occupied by substations.
 /// * `ticks_per_group` - Ticks per group.
+/// * `occupied` - Tracks cells occupied by power poles.
 /// * `base_ent_n` - Starting entity number.
 /// * `start_pos` - Starting X and Y coordinates.
-/// * `max_rows_per_group` - Maximum rows per group.
 /// * `max_cols_per_grp` - Maximum columns per group. Used to detect if compact layout should be used.
-/// * `args` - Uses BlueprintArgs.grayscale_bits (affects extra combinators).
+/// * `args` Blueprint arguments.
 ///
 /// # Returns
 ///
@@ -24,7 +22,7 @@ use wasm_bindgen::*;
 /// Does not populate combinators with data.
 pub fn generate_combinators(
     ticks_per_group: u32,
-    occupied: &mut SubstationOccupied,
+    occupied: &mut PowerPoleOccupied,
     base_ent_n: u32,
     start_pos: DVec2,
     max_cols_per_grp: u32,
@@ -69,8 +67,7 @@ pub fn generate_combinators(
 
     base_pos.y -= height; // Set offset for combinators
 
-    // Finds the position for the combinator with the given tag, based off the blueprint string
-    // we decoded earlier
+    // Finds the position for the combinator with the given tag, based off the blueprint string we decoded earlier
     let get_pos = |tag: &str| -> DVec2 {
         let mut pos = pos_dict.get(tag).expect(&format!("No '{tag}'!")).position + base_offset;
         pos.y -= height;
@@ -225,7 +222,7 @@ pub fn generate_combinators(
         }));
 
         let x_i = grid_pos.x as usize;
-        let prefer_horiz = true ^ matches!(args.image_rotation, Deg0 | Deg180);
+        let prefer_horiz = false;
         let mut cands: Vec<usize> = Vec::new();
 
         if grid_pos.y > 0 && (!prefer_horiz || grid_pos.x == 0) {
