@@ -1,4 +1,4 @@
-import getAnimationInfo, { AnimationInfo, getRawImageData } from "@/animationInfo";
+import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedImageError } from "@/animationInfo";
 import COMB_POS_DATA from "@/assets/data/combinator-positions.json";
 import Background, { BackgroundApi } from "@/components/Background";
 import DialogDelete, { DialogDeleteApi } from "@/components/DialogDelete";
@@ -121,6 +121,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         ref.setAttribute("aria-invalid", "false");
         setFormData(key as keyof typeof formData, rawValue);
       }
+
       return (
         <div class="mb-1 factorio-form-element" aria-disabled={value.disabled} classList={{ flex: compact }}>
           <label class="block text-white-500 mb-0 w-full">
@@ -173,27 +174,37 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       return;
     }
 
-    const _isStaticImage = !["image/gif", "image/webp"].includes(file.type);
+    let isStaticImage: boolean | null;
     let data: ImageData | undefined = undefined;
 
     try {
-      if (!_isStaticImage) {
-        // Use our own custom info parser on the raw data
-        setAnimationInfo(getAnimationInfo(new Uint8Array(await file.arrayBuffer())));
-      } else {
+      try {
+        data = await getRawImageData(file);
+        isStaticImage = true;
+
         // Parse the image directly in JS for more compatibility (we decode using the browser and
         // send the image buffer directly to Rust instead of relying on support from Rust crates).
-        data = await getRawImageData(file);
         setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
+      } catch (e: any) {
+        if (e instanceof UnsupportedImageError) {
+          isStaticImage = false;
+
+          // Use our own custom info parser on the raw data
+          setAnimationInfo(getAnimationInfo(new Uint8Array(await file.arrayBuffer())));
+        } else {
+          isStaticImage = null;
+          throw e;
+        }
       }
     } catch (e: any) {
       throw e;
     }
 
-    setIsStaticImage(_isStaticImage);
+    setIsStaticImage(isStaticImage);
     setImageData(data);
     setCurrFile(file);
     saveFileDB(file, LAST_FILE_KEY);
+
     refBackground.setImageURL(URL.createObjectURL(file));
   }
 
@@ -247,16 +258,17 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       }
 
       function getMode() {
-        return !currFile() || !isStaticImage()
-          ? formData.mode
-          : {
-              staticImage: {
-                useConstantCombinators: formData.staticImageMode === "constant",
-                useCombinators: formData.staticImageMode !== "lamps",
-                useTimer: formData.staticImageMode === "video",
-              },
-            };
+        if (!currFile() || !isStaticImage()) return formData.mode;
+        return {
+          staticImage: {
+            useConstantCombinators: formData.staticImageMode === "constant",
+            useCombinators: formData.staticImageMode !== "lamps",
+            useTimer: formData.staticImageMode === "video",
+          },
+        };
       }
+
+      console.log(data);
 
       worker.postMessage({
         generate: {
@@ -269,7 +281,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             flippedAxes: `${formData.flippedAxes}`,
             grayscaleBits: +formData.grayscaleBits,
             imageMetadata: {
-              imageType: currFile()?.type.substring(6 /* image/ */),
+              imageType: isStaticImage() ? "" : currFile()?.type.substring(6 /* image/ */),
               imageSize: imageData() && [imageData()!.width, imageData()!.height],
             },
             imageFilters: [],
@@ -351,13 +363,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         dataTransfer.items.add(file);
         formRefs.fileInput.files = dataTransfer.files; // Pre-populate form with file
         setInputFile(file);
-
-        if (file.type !== "image/gif" && file.type !== "image/webp") {
-          getRawImageData(file).then((v) => {
-            setAnimationInfo(new AnimationInfo(0, 0, v.width, v.height));
-            setImageData(v);
-          });
-        }
       })
       .catch((err) => {
         console.error("Failed to load file:", err);
@@ -507,7 +512,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                   "panel-inset-light": !showAdvanced(),
                   "text-white": !showAdvanced(),
                 }}
-                onClick={() => setShowAdvanced(!showAdvanced())}
+                onClick={() => setShowAdvanced((x) => !x)}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"

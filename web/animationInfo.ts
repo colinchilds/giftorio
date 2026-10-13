@@ -186,5 +186,12 @@ export default function animationInfo(data: Uint8Array): AnimationInfo {
     String.fromCharCode(...data.subarray(8, 12)) === "WEBP"
   ) {
     return webpInfo(data);
-  } else throw new Error("Unsupported image format");
+  } else throw new UnsupportedImageError("Unsupported image format");
+}
+
+export class UnsupportedImageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedImageError";
+  }
 }

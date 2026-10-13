@@ -53,7 +53,8 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
                   <div>
                     <div>
                       <span class="text-cyan-500 font-semibold">Total Signals:</span>{" "}
-                      <span class="text-tan-500 font-semibold">{currPreset()!.signals.length}</span>
+                      <span class="text-tan-500 font-semibold">{currPreset()!.signals.length}</span>{" "}
+                      <span>({currPreset()!.signals.length * Math.max(currPreset()!.qualities.length, 1)} unique)</span>
                     </div>
                     <div>
                       <span class="text-cyan-500 font-semibold">Total Qualities:</span>{" "}

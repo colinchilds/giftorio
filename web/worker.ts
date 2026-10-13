@@ -11,13 +11,7 @@ async function main() {
   let writerReadyResolve: (() => void) | null = null;
   let writerReady: Promise<void> = Promise.resolve();
 
-  function waitForWriterReady() {
-    writerReady = new Promise<void>((resolve) => {
-      writerReadyResolve = resolve;
-    });
-
-    return writerReady;
-  }
+  const waitForWriterReady = () => new Promise<void>((resolve) => (writerReadyResolve = resolve));
 
   const pendingWrites = new Map();
   let nextWriteId = 0;
@@ -42,7 +36,7 @@ async function main() {
         waitForWriterReady();
 
         if (outputFormat === "blueprint") {
-          postMessage({ type: "start", filename: "blueprint.bp" });
+          postMessage({ type: "start", filename: "blueprint.txt" });
         } else if (outputFormat === "json") {
           postMessage({ type: "start", filename: "blueprint.json" });
         } else if (outputFormat === "rawCompressed") {
@@ -53,16 +47,13 @@ async function main() {
 
         await writerReady;
 
-        const blueprintMetadata = await run_blueprint(
-          args,
-          imageData,
-          (data: Uint8Array) =>
-            new Promise((resolve, reject) => {
-              const id = nextWriteId++;
-              pendingWrites.set(id, { resolve, reject });
-              postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
-            }),
-        );
+        const blueprintMetadata = await run_blueprint(args, imageData, (data: Uint8Array) => {
+          return new Promise<void>((resolve, reject) => {
+            const id = nextWriteId++;
+            pendingWrites.set(id, { resolve, reject });
+            postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
+          });
+        });
         postMessage({ blueprintMetadata });
         postMessage({ type: "done" });
       } catch (e) {
