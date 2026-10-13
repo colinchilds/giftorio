@@ -1,4 +1,4 @@
-mod blueprint;
+pub mod blueprint;
 mod combinator;
 mod constants;
 pub mod encoder;

@@ -3,7 +3,7 @@ use crate::blueprint::{
 };
 use crate::image_processing::FrameData;
 use crate::progress::set_progress;
-use glam::{dvec2, uvec2, UVec2};
+use glam::{dvec2, ivec2, uvec2, DVec2, IVec2, UVec2};
 use std::{io, sync::Arc};
 use wasm_bindgen::JsValue;
 
@@ -22,6 +22,7 @@ pub struct BlueprintGenerator<'a> {
     max_cols_per_grp: u32,
     n_groups: u32,
     occupied: SubstationOccupied,
+    pos_mul: IVec2,
     should_generate_cbs: bool,
     signals: Vec<Arc<Signal>>,
     state: BlueprintState,
@@ -139,6 +140,12 @@ impl<'a> BlueprintGenerator<'a> {
             max_cols_per_grp: max_lamp_cols_per_grp,
             n_groups,
             occupied: SubstationOccupied::new(sub_base_pos, &args),
+            pos_mul: match args.image_rotation {
+                ImageRotation::Deg0 => ivec2(1, 1),
+                ImageRotation::Deg90 => ivec2(1, -1),
+                ImageRotation::Deg180 => ivec2(-1, -1),
+                ImageRotation::Deg270 => ivec2(-1, 1),
+            },
             should_generate_cbs: !matches!(
                 args.mode,
                 Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid
@@ -305,7 +312,10 @@ impl<'a> BlueprintGenerator<'a> {
         Ok(true)
     }
 
+    /// Gets the description to attach to the blueprint.
     fn get_description(&self) -> String {
+        // Note: we use the `var` font for bold text as the word "var" is short and takes up less space.
+
         let name = self.args.name.clone();
         let info = self.frame_info.as_ref();
         let dim = self.dim;
@@ -466,6 +476,8 @@ impl<'a> BlueprintGenerator<'a> {
 
         Ok(())
     }
+
+    fn map_position(&self, pos: DVec2) {}
 
     fn populate_data(&mut self, mut writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let info = self.frame_info.as_mut().unwrap();

@@ -1,4 +1,4 @@
-import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedImageError } from "@/animationInfo";
+import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedAnimationError } from "@/animationInfo";
 import COMB_POS_DATA from "@/assets/data/combinator-positions.json";
 import Background, { BackgroundApi } from "@/components/Background";
 import DialogDelete, { DialogDeleteApi } from "@/components/DialogDelete";
@@ -174,31 +174,25 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       return;
     }
 
-    let isStaticImage: boolean | null;
+    let isStaticImage: boolean | null = null;
     let data: ImageData | undefined = undefined;
 
     try {
-      try {
-        data = await getRawImageData(file);
-        isStaticImage = true;
-
-        // Parse the image directly in JS for more compatibility (we decode using the browser and
-        // send the image buffer directly to Rust instead of relying on support from Rust crates).
-        setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
-      } catch (e: any) {
-        if (e instanceof UnsupportedImageError) {
-          isStaticImage = false;
-
-          // Use our own custom info parser on the raw data
-          setAnimationInfo(getAnimationInfo(new Uint8Array(await file.arrayBuffer())));
-        } else {
-          isStaticImage = null;
-          throw e;
-        }
-      }
+      const info = getAnimationInfo(new Uint8Array(await file.arrayBuffer()));
+      setAnimationInfo(info);
+      isStaticImage = false;
     } catch (e: any) {
-      throw e;
+      if (!(e instanceof UnsupportedAnimationError)) throw e;
+
+      data = await getRawImageData(file);
+      isStaticImage = true;
+
+      // Parse the image directly in JS for more compatibility (we decode using the browser and
+      // send the image buffer directly to Rust instead of relying on support from Rust crates).
+      setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
     }
+
+    console.log(isStaticImage);
 
     setIsStaticImage(isStaticImage);
     setImageData(data);
@@ -267,8 +261,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
           },
         };
       }
-
-      console.log(data);
 
       worker.postMessage({
         generate: {

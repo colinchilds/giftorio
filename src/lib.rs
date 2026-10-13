@@ -30,28 +30,69 @@ pub async fn run_blueprint(
     image_data: &[u8], // note: may be empty
     send_chunk: &js_sys::Function<fn(js_sys::Uint8Array) -> js_sys::Promise>,
 ) -> Result<JsValue, JsValue> {
-    let mut args: models::BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
-    let mut frame_data: Option<image_processing::FrameData> = None;
+    use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
+    use image_processing::FrameData;
+    use models::*;
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
+    use streaming_writer::{ChunkQueue, StreamingWriter};
 
-    if matches!(args.mode, models::Mode::Static { .. }) {
+    let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
+    let mut frame_data: Option<FrameData> = None;
+
+    if matches!(args.mode, Mode::Static { .. }) {
         args.signal_compression = None;
         args.target_fps = 1;
     }
-    if matches!(args.mode, models::Mode::Full | models::Mode::Static { .. }) {
+    if matches!(args.mode, Mode::Full | Mode::Static { .. }) {
         // Create iterator over frames. Auto-detects the total number of frames + total duration
         // using custom byte scanning.
-        frame_data = Some(image_processing::FrameData::new(image_data, &args)?);
+        frame_data = Some(FrameData::new(image_data, &args)?);
     }
+
+    let chunks: ChunkQueue = Arc::new(Mutex::new(VecDeque::new()));
+    let writer = StreamingWriter::new(5 * 1024 * 1024, Arc::clone(&chunks));
 
     // Yields JSON or compressed blueprint in chunks
-    let mut encoder = blueprint::encoder::BlueprintEncoder::new_from_frame_data(frame_data, &args)?;
+    let gen = BlueprintGenerator::new(frame_data, &args)?;
+    let mut encoder = BlueprintEncoder::new(gen, &args, writer)?;
 
-    while let Some(chunk) = encoder.next_chunk()? {
-        // Directly write the chunk to the disk (no storing a full buffer in RAM)
-        let promise = send_chunk.call1(&JsValue::NULL, &js_sys::Uint8Array::from(&chunk[..]))?;
+    // Directly write the chunk to the disk (no storing a full buffer in RAM)
+
+    // Generate and send full chunks as they become available.
+    while let Some(_) = encoder.next()? {
+        loop {
+            let chunk = chunks.lock().unwrap().pop_front();
+            let Some(chunk) = chunk else {
+                break;
+            };
+
+            let buf = js_sys::Uint8Array::from(chunk.as_slice());
+            let promise = send_chunk.call1(&JsValue::NULL, &buf)?;
+            wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
+        }
+    }
+
+    // Finalize zlib/Base64, then emit the remaining partial chunk.
+    let mut stream_writer = encoder.finish()?;
+    stream_writer.finish();
+
+    // IMPORTANT: send the final chunk(s), including small outputs
+    // that never reached the 5 MiB threshold.
+    loop {
+        let chunk = chunks.lock().unwrap().pop_front();
+        let Some(chunk) = chunk else {
+            break;
+        };
+
+        let buf = js_sys::Uint8Array::from(chunk.as_slice());
+        let promise = send_chunk.call1(&JsValue::NULL, &buf)?;
         wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
     }
-    let obj = js_sys::Object::new(); // Technically redundant but allows adding metadata
+
+    let obj = js_sys::Object::new();
     Ok(JsValue::from(obj))
 }
 
