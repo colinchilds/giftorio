@@ -10,11 +10,34 @@
     "tooltip": "The blueprint parts to include. Changes if the input file is an image or a video.",
     "splash": "Modes other than 'Everything' will not use the input video / image."
   },
-  "includeSubstations": {
-    "name": "Include Substations",
+  "includePowerPoles": {
+    "name": "Power Poles",
     "type": "checkbox",
-    "tooltip": "Whether to include substations in the blueprint.",
-    "splash": "Substations are not required on space platforms."
+    "tooltip": "Whether to include power poles in the blueprint.",
+    "splash": "Power poles are not required on space platforms."
+  },
+  "powerPoleName": {
+    "name": "Pole Entity",
+    "type": "select",
+    "options": {
+      "substation": {
+        "name": "Substation"
+      },
+      "small-electric-pole": {
+        "name": "Small",
+        "tooltip": "Small electric pole."
+      },
+      "medium-electric-pole": {
+        "name": "Medium",
+        "tooltip": "Medium electric pole."
+      },
+      "big-electric-pole": {
+        "name": "Big",
+        "tooltip": "Big electric pole."
+      }
+    },
+    "tooltip": "The name of the power pole entity to use.",
+    "splash": "The default name is 'substation'."
   },
   "staticImageMode": {
     "name": "Static Image Mode",

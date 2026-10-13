@@ -1,0 +1,18 @@
+{
+  "small-electric-pole": {
+    "bounding_box": [1, 1],
+    "coverage": { "_": 5, "uncommon": 7, "rare": 9, "epic": 11, "legendary": 15 }
+  },
+  "medium-electric-pole": {
+    "bounding_box": [1, 1],
+    "coverage": { "_": 7, "uncommon": 9, "rare": 11, "epic": 13, "legendary": 17 }
+  },
+  "big-electric-pole": {
+    "bounding_box": [2, 2],
+    "coverage": { "_": 4, "uncommon": 6, "rare": 8, "epic": 10, "legendary": 14 }
+  },
+  "substation": {
+    "bounding_box": [2, 2],
+    "coverage": { "_": 18, "uncommon": 20, "rare": 22, "epic": 24, "legendary": 28 }
+  }
+}

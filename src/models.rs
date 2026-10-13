@@ -20,8 +20,8 @@ pub struct BlueprintArgs {
     pub image_metadata: ImageMetadata,
     #[serde(rename = "imageRotation")]
     pub image_rotation: ImageRotation,
-    #[serde(rename = "includeSubstations")]
-    pub include_substations: bool,
+    #[serde(rename = "includePowerPoles")]
+    pub include_power_poles: bool,
     #[serde(rename = "displayMarginY")]
     pub lamp_margin_y: u32,
     #[serde(rename = "maxGroupSize")]
@@ -32,6 +32,10 @@ pub struct BlueprintArgs {
     pub mode: Mode,
     #[serde(rename = "outputFormat")]
     pub output_format: OutputFormat,
+    #[serde(rename = "powerPoleName")]
+    pub power_pole_name: Option<String>,
+    #[serde(rename = "powerPoleQuality")]
+    pub power_pole_quality: Option<Arc<str>>,
     #[serde(rename = "useGreenLampWires")]
     pub prefer_green_wires: bool,
     #[serde(rename = "useHorizontalLampWires")]
@@ -42,8 +46,6 @@ pub struct BlueprintArgs {
     pub signal_compression: Option<SignalCompression>,
     #[serde(rename = "signalSorting")]
     pub signal_sorting: SignalSorting,
-    #[serde(rename = "substationQuality")]
-    pub substation_quality: Option<Arc<str>>,
     #[serde(rename = "targetFps")]
     pub target_fps: u32,
 

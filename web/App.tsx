@@ -1,4 +1,4 @@
-import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedImageError } from "@/animationInfo";
+import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedAnimationError } from "@/animationInfo";
 import COMB_POS_DATA from "@/assets/data/combinator-positions.json";
 import Background, { BackgroundApi } from "@/components/Background";
 import DialogDelete, { DialogDeleteApi } from "@/components/DialogDelete";
@@ -174,31 +174,25 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       return;
     }
 
-    let isStaticImage: boolean | null;
+    let isStaticImage: boolean | null = null;
     let data: ImageData | undefined = undefined;
 
     try {
-      try {
-        data = await getRawImageData(file);
-        isStaticImage = true;
-
-        // Parse the image directly in JS for more compatibility (we decode using the browser and
-        // send the image buffer directly to Rust instead of relying on support from Rust crates).
-        setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
-      } catch (e: any) {
-        if (e instanceof UnsupportedImageError) {
-          isStaticImage = false;
-
-          // Use our own custom info parser on the raw data
-          setAnimationInfo(getAnimationInfo(new Uint8Array(await file.arrayBuffer())));
-        } else {
-          isStaticImage = null;
-          throw e;
-        }
-      }
+      const info = getAnimationInfo(new Uint8Array(await file.arrayBuffer()));
+      setAnimationInfo(info);
+      isStaticImage = false;
     } catch (e: any) {
-      throw e;
+      if (!(e instanceof UnsupportedAnimationError)) throw e;
+
+      data = await getRawImageData(file);
+      isStaticImage = true;
+
+      // Parse the image directly in JS for more compatibility (we decode using the browser and
+      // send the image buffer directly to Rust instead of relying on support from Rust crates).
+      setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
     }
+
+    console.log(isStaticImage);
 
     setIsStaticImage(isStaticImage);
     setImageData(data);
@@ -268,8 +262,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         };
       }
 
-      console.log(data);
-
       worker.postMessage({
         generate: {
           imageData: data,
@@ -286,18 +278,19 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             },
             imageFilters: [],
             imageRotation: `${formData.imageRotation}`,
-            includeSubstations: formData.includeSubstations,
+            includePowerPoles: formData.includePowerPoles,
             maxGroupSize: +formData.maxGroupSize! || null,
             maxSize: +formData.maxSize,
             mode: getMode(),
             name: currFile()?.name,
             outputFormat: `${formData.outputFormat}`,
+            powerPoleName: formData.powerPoleName,
+            powerPoleQuality: formData.powerPoleQuality,
             resamplingFilter: `${formData.resamplingFilter}`,
             rotation: +formData.rotation,
             signalCompression,
             signalSorting:
               formData.signalSorting === "auto" ? (formData.outputFormat === "json" ? "json" : "compression") : `${formData.signalSorting}`,
-            substationQuality: formData.substationQuality,
             targetFps: +formData.targetFps,
             timingSignals: timingSignals(),
             useGreenLampWires: !!(formData.wireColor === "green"),
@@ -417,7 +410,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     );
   }
   function FormElementsDisplay(props: { isStaticImage: boolean }) {
-    const disallowedKeys = ["includeSubstations", "grayscaleBits", "outputFormat"];
+    const disallowedKeys = ["includePowerPoles", "grayscaleBits", "outputFormat"];
     const visibleFormElements = createMemo(() =>
       Object.entries(FORM_ELEMENTS).map(([key, value]) => {
         if (disallowedKeys.includes(key)) return null;
@@ -620,19 +613,19 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
               </button> */}
             </div>
             <div class="panel-inset-light px-3 pt-2 py-1 shadow-md w-full max-w-md overflow-y-auto" style={{ "max-height": "50vh" }}>
-              <FormElement key="includeSubstations" value={FORM_ELEMENTS.includeSubstations} />
+              <FormElement key="includePowerPoles" value={FORM_ELEMENTS.includePowerPoles} />
 
               <Show when={signalPreset()}>
                 <FactorioSelect
-                  name="Substation Quality"
-                  key="substationQuality"
-                  title="The quality level of the substations."
-                  disabled={!formData.includeSubstations}
+                  name="Pole Quality"
+                  key="includePowerPoles"
+                  title="The quality level of the power poles."
+                  disabled={!formData.includePowerPoles}
                   options={[
                     ["<default>", { name: "<Default>", tooltip: "Use the default quality level, if any." }],
                     ...signalPreset()!.qualities.map((q) => [q, { name: q, tooltip: `Maps to the internal quality "${q}".` }] as const),
                   ]}
-                  tooltip="The quality level of the substations."
+                  tooltip="The quality level of the power poles."
                   splash={
                     signalPreset()!.qualities.length === 0
                       ? "Unavailable as the current signal preset does not support quality levels."

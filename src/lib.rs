@@ -30,28 +30,63 @@ pub async fn run_blueprint(
     image_data: &[u8], // note: may be empty
     send_chunk: &js_sys::Function<fn(js_sys::Uint8Array) -> js_sys::Promise>,
 ) -> Result<JsValue, JsValue> {
-    let mut args: models::BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
-    let mut frame_data: Option<image_processing::FrameData> = None;
+    use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
+    use image_processing::FrameData;
+    use models::*;
+    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+    use streaming_writer::StreamingWriter;
 
-    if matches!(args.mode, models::Mode::Static { .. }) {
+    let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
+    let mut frame_data: Option<FrameData> = None;
+    let promises: Rc<RefCell<VecDeque<Vec<js_sys::Promise>>>> =
+        Rc::new(RefCell::new(VecDeque::new()));
+    let promise_q = Rc::clone(&promises);
+
+    if matches!(args.mode, Mode::Static { .. }) {
         args.signal_compression = None;
         args.target_fps = 1;
     }
-    if matches!(args.mode, models::Mode::Full | models::Mode::Static { .. }) {
+    if matches!(args.mode, Mode::Full | Mode::Static { .. }) {
         // Create iterator over frames. Auto-detects the total number of frames + total duration
         // using custom byte scanning.
-        frame_data = Some(image_processing::FrameData::new(image_data, &args)?);
+        frame_data = Some(FrameData::new(image_data, &args)?);
     }
+
+    let writer = StreamingWriter::new(1 * 1000 * 1000, move |chunk| {
+        let data = js_sys::Uint8Array::from(chunk.as_slice());
+        let promise = send_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
+        let promise = js_sys::Promise::from(promise);
+        promise_q.borrow_mut().back_mut().map(|q| q.push(promise));
+    });
 
     // Yields JSON or compressed blueprint in chunks
-    let mut encoder = blueprint::encoder::BlueprintEncoder::new_from_frame_data(frame_data, &args)?;
+    let gen = BlueprintGenerator::new(frame_data, &args)?;
+    let mut encoder = BlueprintEncoder::new(gen, &args, writer)?;
 
-    while let Some(chunk) = encoder.next_chunk()? {
-        // Directly write the chunk to the disk (no storing a full buffer in RAM)
-        let promise = send_chunk.call1(&JsValue::NULL, &js_sys::Uint8Array::from(&chunk[..]))?;
-        wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
+    let flush = async || -> Result<(), JsValue> {
+        // Get the earliest list of promises from the queue
+        if let Some(mut q) = std::mem::take(&mut *promises.borrow_mut()).pop_front() {
+            for promise in q.drain(..) {
+                wasm_bindgen_futures::JsFuture::from(promise).await?;
+            }
+        }
+        Ok(())
+    };
+
+    promises.borrow_mut().push_back(vec![]);
+
+    // `encoder.next()` may generate a series of chunks
+    while let Some(_) = encoder.next()? {
+        flush().await?; // Wait for all those chunks to be sent
+        promises.borrow_mut().push_back(vec![]); // Repopulate
     }
-    let obj = js_sys::Object::new(); // Technically redundant but allows adding metadata
+
+    let mut stream_writer = encoder.finish()?;
+    stream_writer.finish();
+
+    flush().await?; // Flush tail
+
+    let obj = js_sys::Object::new();
     Ok(JsValue::from(obj))
 }
 

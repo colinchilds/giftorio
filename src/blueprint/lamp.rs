@@ -1,4 +1,4 @@
-use crate::blueprint::{constants::*, models::*, substation::*};
+use crate::blueprint::{constants::*, models::*, power_pole::*};
 use glam::{dvec2, DVec2, UVec2};
 use std::sync::Arc;
 
@@ -8,7 +8,8 @@ use std::sync::Arc;
 ///
 /// * `signals` - Signals to assign to each lamp.
 /// * `grid_dim` - Number of lamps horizontally and vertically.
-/// * `occupied_cells` - Set of grid cells already occupied by substations.
+/// * `curr_frame` - Current frame.
+/// * `occupied` - Tracks cells occupied by power poles.
 /// * `base_ent_n` - Starting entity number for lamps.
 /// * `start_pos` - Starting X and Y coordinates.
 /// * `args` - Args for generating the blueprint.
@@ -20,7 +21,7 @@ pub fn generate_lamps(
     signals: &[Arc<Signal>],
     grid_dim: UVec2,
     curr_frame: Option<image::DynamicImage>,
-    occupied: &mut SubstationOccupied,
+    occupied: &mut PowerPoleOccupied,
     base_ent_n: u32,
     start_pos: DVec2,
     args: &BlueprintArgs,
