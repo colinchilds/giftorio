@@ -1,0 +1,18 @@
+exclude = [".git", "__pycache__", "venv", "mlx_vlm"]
+line-length = 200
+
+
+[format]
+docstring-code-format = true
+preview = true
+quote-style = "double"
+
+
+[lint]
+ignore = ["E702", "E741"]
+
+
+[lint.isort]
+combine-as-imports = true
+force-single-line = false
+force-sort-within-sections = true

@@ -21,11 +21,12 @@ pub fn generate_timer(
     frames_per_comb: u32,
     args: &BlueprintArgs,
 ) -> (Vec<Entity>, Vec<Wire>) {
-    let sig_t = Signal::new_virtual(Arc::clone(&SIG_T));
+    let ts = &args.timing_sigs;
+    let (sig_f, sig_s, sig_t) = (&ts.f, &ts.s, &ts.t);
 
     let gray_bits = args.grayscale_bits;
     let mut ents: Vec<Entity> = Vec::new();
-    let mut wires: Vec<[u32; 4]> = Vec::new();
+    let mut wires: Vec<Wire> = Vec::new();
 
     let mut en = Entity::new(1, Arc::clone(&CONSTANT_COMB), TIMER1_POS).with_direction(DIR_R);
     let sections = Sections {
@@ -33,9 +34,9 @@ pub fn generate_timer(
             index: 1,
             filters: vec![Filter {
                 index: 1,
-                type_: Arc::clone(&SIG_TYPE_VIRTUAL),
-                name: Arc::clone(&SIG_T),
-                quality: Some(Arc::clone(&QUAL_NORMAL)),
+                type_: sig_t.type_.clone(),
+                name: sig_t.name.clone(),
+                quality: sig_t.quality.clone(),
                 comparator: Some(COMP_EQ.to_owned()),
                 count: Some(1),
             }],
@@ -53,7 +54,7 @@ pub fn generate_timer(
     ents.push(en.with_control_behavior(ControlBehavior::Decider { decider_conditions }));
 
     let en = Entity::new(3, Arc::clone(&ARI_CB), TIMER3_POS).with_direction(DIR_R);
-    let conds = arithmetic_virtual!(SIG_T - 1 => SIG_T);
+    let conds = arithmetic_conds!(sig_t - 1 => sig_t);
     ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
 
     wires.push([1, WIRE_R, 2, WIRE_R]);
@@ -62,15 +63,15 @@ pub fn generate_timer(
 
     if gray_bits > 0 {
         let en = Entity::new(4, Arc::clone(&ARI_CB), TIMER4_POS).with_direction(DIR_L);
-        let conds = arithmetic_virtual!(SIG_T % (ticks_per_frame * frames_per_comb) => SIG_S);
+        let conds = arithmetic_conds!(sig_t % (ticks_per_frame * frames_per_comb) => sig_s);
         ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
 
         let en = Entity::new(5, Arc::clone(&ARI_CB), TIMER5_POS);
-        let conds = arithmetic_virtual!(SIG_S / ticks_per_frame => SIG_F);
+        let conds = arithmetic_conds!(sig_s / ticks_per_frame => sig_f);
         ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
 
         let mut en = Entity::new(6, Arc::clone(&ARI_CB), TIMER6_POS).with_direction(DIR_R);
-        let conds = arithmetic_virtual!(SIG_EACH * gray_bits => SIG_EACH);
+        let conds = arithmetic_conds!(SIG_EACH * gray_bits => SIG_EACH);
         en = en.with_description("Calculates the bit shift for current frame.");
         ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
 

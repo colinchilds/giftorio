@@ -2,11 +2,17 @@ use crate::blueprint::{
     combinator::*, constants::*, lamp::*, models::*, signals::*, substation::*, timer::*, util::*,
 };
 use crate::image_processing::FrameData;
+use crate::progress::set_progress;
 use glam::{dvec2, uvec2, UVec2};
 use std::{io, sync::Arc};
 use wasm_bindgen::JsValue;
 
+/// How many entities to encode in one go. Encoding more entities at once is faster, but uses more memory.
 const ENCODE_CHUNK_SIZE: usize = 100;
+
+/// Number of wires to encode per chunk. Since wires generate much less data,
+/// we can batch more wires together for better speed.
+const WIRE_ENCODE_CHUNK_SIZE: usize = 5000;
 
 pub struct BlueprintGenerator<'a> {
     args: &'a BlueprintArgs,
@@ -58,13 +64,13 @@ struct GroupPatchState {
 
 impl<'a> BlueprintGenerator<'a> {
     pub fn new(data: Option<FrameData<'a>>, args: &'a BlueprintArgs) -> Result<Self, JsValue> {
-        let signals: Vec<Arc<Signal>> = get_signals_with_quality(&args);
+        let signals: Vec<Arc<Signal>> = Self::get_signal_data(&args);
         let gray_bits = args.grayscale_bits;
         let comb_comp = args.signal_compression;
-        let time_comp_win = comb_comp.map_or(0, |c| match c {
-            SignalCompression::Temporal { window } => window,
+        let time_comp_win = match comb_comp {
+            Some(SignalCompression::Temporal { window }) => window,
             _ => 0,
-        });
+        };
         let mut frame_info: Option<FrameInfo> = None;
         let frame_dim: UVec2;
 
@@ -90,15 +96,17 @@ impl<'a> BlueprintGenerator<'a> {
                 use_delta_comp: comb_comp.is_some_and(|c| c == SignalCompression::Delta),
             });
         } else {
-            frame_dim = uvec2(
-                args.custom_width.expect("Must have width or frame data."),
-                args.custom_height.expect("Must have height or frame data."),
-            );
+            let w = args.custom_width.expect("Must have width or frame data.");
+            let h = args.custom_height.expect("Must have height or frame data.");
+            frame_dim = uvec2(w, h);
         }
+        let use_const_cbs = matches!(args.mode, Mode::Static { const_cb: true, .. });
         let max_lamp_cols_per_grp = if matches!(args.mode, Mode::Static { combs: false, .. }) {
             frame_dim.x
         } else {
-            (signals.len() as u32 / frame_dim.y).min(args.max_group_size.unwrap_or(frame_dim.x))
+            // Constant combinators can only hold up to 1000 signals
+            ((signals.len() as u32).min(if use_const_cbs { 1000 } else { u32::MAX }) / frame_dim.y)
+                .min(args.max_group_size.unwrap_or(frame_dim.x))
         };
         if max_lamp_cols_per_grp < 1 {
             return Err(JsValue::from_str(
@@ -130,14 +138,42 @@ impl<'a> BlueprintGenerator<'a> {
             dim: frame_dim,
             max_cols_per_grp: max_lamp_cols_per_grp,
             n_groups,
-            occupied: SubstationOccupied::new(sub_base_pos, args.substation_quality.clone()),
-            should_generate_cbs: match args.mode {
-                Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid => false,
-                _ => true,
-            },
+            occupied: SubstationOccupied::new(sub_base_pos, &args),
+            should_generate_cbs: !matches!(
+                args.mode,
+                Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid
+            ),
             signals,
             state: BlueprintState::Start,
         })
+    }
+
+    fn get_signal_data(args: &BlueprintArgs) -> Vec<Arc<Signal>> {
+        let blacklist_signals = [
+            Arc::from(args.timing_sigs.f.clone()),
+            Arc::from(args.timing_sigs.s.clone()),
+            Arc::from(args.timing_sigs.t.clone()),
+        ];
+        let mut signals = SIGNALS.with_borrow(|data| {
+            let filtered = data.iter().filter(|&v| !blacklist_signals.contains(v));
+            filtered.cloned().collect::<Vec<_>>()
+        });
+        match args.signal_sorting {
+            // Only sort by name (compressor really likes this)
+            SignalSorting::Compression => signals.sort_by(|a, b| a.name.cmp(&b.name)),
+            // Sort by total length of the type + name + quality (actual smallest JSON)
+            SignalSorting::Json => signals.sort_by_key(|s| {
+                s.quality.as_ref().map_or(0, |q| match q.as_ref() {
+                    "normal" => -1 * ",\"quality\":\"normal\"".len() as i64,
+                    _ => q.to_string().len() as i64,
+                }) + match s.type_.as_ref() {
+                    "item" => -1 * ",\"type\":\"item\"".len() as i64, // type defaults to "item" if not specified
+                    _ => s.type_.len() as i64,
+                } + s.name.len() as i64
+            }),
+            _ => {}
+        };
+        signals
     }
 
     pub fn done(&mut self) -> bool {
@@ -217,9 +253,9 @@ impl<'a> BlueprintGenerator<'a> {
             BlueprintState::Entities => self.place_entities(writer)?,
             BlueprintState::Data => {
                 if self.should_generate_cbs {
-                    self.populate_data(writer)?
+                    self.populate_data(writer)?;
                 } else {
-                    self.state = BlueprintState::Wires
+                    self.state = BlueprintState::Wires;
                 }
             }
             BlueprintState::Wires => self.make_wires(writer)?,
@@ -244,7 +280,7 @@ impl<'a> BlueprintGenerator<'a> {
                         self.occupied.request(en.position); // Request substations to power entities
                     }
                     let (ents, wires, _) =
-                        generate_substations(&mut self.occupied, ent_data.next_ent_n);
+                        generate_substations(&mut self.occupied, ent_data.next_ent_n, &self.args);
                     ent_data.ents.extend(ents);
                     ent_data.wires.extend(wires);
 
@@ -313,10 +349,6 @@ impl<'a> BlueprintGenerator<'a> {
             ]);
         }
 
-        if self.args.use_dlc {
-            output.push("\n\n[space-age]".to_owned());
-        }
-
         let footer = "Generated using GIFtorio.";
         output.push(format!("\n\n[font=default-small-semibold]{footer}[/font]"));
 
@@ -341,8 +373,18 @@ impl<'a> BlueprintGenerator<'a> {
             ent_data.wires.extend(wires);
         }
         let mut prev_top_right_lamp_ent_n: Option<u32> = None;
+        let n_groups = self.n_groups;
 
-        for group_i in 0..self.n_groups {
+        for group_i in 0..n_groups {
+            let is_static = matches!(args.mode, Mode::Static { .. });
+            let thresh = if is_static { 0.60 } else { 0.10 };
+            set_progress(
+                0.00,
+                thresh,
+                (group_i + 1) as f64 / n_groups as f64,
+                &format!("Generating lamps (group {} / {n_groups})", group_i + 1),
+            );
+
             let grp_left = group_i * self.max_cols_per_grp;
             let grp_width = (self.max_cols_per_grp).min(self.dim.x - grp_left);
             let (mut cb_in_ent_n, mut cb_out_ent_n) = (0, 0);
@@ -383,10 +425,21 @@ impl<'a> BlueprintGenerator<'a> {
             }
 
             if self.should_generate_cbs {
+                let wires = &mut ent_data.wires;
                 if let Some(top_left_lamp_ent_n) = top_left_lamp_ent_n {
-                    let data_wire = [top_left_lamp_ent_n, WIRE_R, cb_in_ent_n, WIRE_R];
-                    let signal_wire = [top_left_lamp_ent_n, WIRE_G, cb_out_ent_n, WIRE_OUT_G];
-                    ent_data.wires.extend([data_wire, signal_wire]);
+                    if !matches!(args.mode, Mode::Static { timer: false, .. }) {
+                        // Timing wire
+                        wires.push([top_left_lamp_ent_n, WIRE_R, cb_in_ent_n, WIRE_R]);
+                    }
+
+                    // Data wire
+                    if args.grayscale_bits == 0
+                        && matches!(args.mode, Mode::Static { const_cb: true, .. })
+                    {
+                        wires.push([top_left_lamp_ent_n, WIRE_G, cb_out_ent_n, WIRE_G]);
+                    } else {
+                        wires.push([top_left_lamp_ent_n, WIRE_G, cb_out_ent_n, WIRE_OUT_G]);
+                    }
                 }
             }
 
@@ -429,16 +482,37 @@ impl<'a> BlueprintGenerator<'a> {
         let ticks_per_frame = info.ticks_per_frame;
         let use_delta_comp = info.use_delta_comp;
         let ticks_per_grp = ticks_per_frame * frames_per_cb;
+        let mode = self.args.mode;
+        let sig_t = self.args.timing_sigs.t.clone();
 
         let mk_cb = |start: u32, end: u32, outputs: Vec<CombinatorOutput>| {
-            let sig = Signal::new_virtual(Arc::clone(&SIG_T));
-            ControlBehavior::from_decider_conditions(DeciderConditions {
-                conditions: Some(vec![
-                    Condition::new(sig.clone(), start as i32, COMP_GE),
-                    Condition::new(sig, end as i32, COMP_LT).with_compare_type(COMP_AND),
-                ]),
-                outputs: Some(outputs),
-            })
+            if matches!(mode, Mode::Static { const_cb: true, .. }) {
+                let filters = outputs.iter().enumerate().map(|(i, o)| {
+                    let sig = o.signal.as_ref().unwrap();
+                    Filter {
+                        index: i as u32 + 1,
+                        type_: Arc::clone(&sig.type_),
+                        name: Arc::clone(&sig.name),
+                        quality: sig.quality.clone(),
+                        comparator: Some(COMP_EQ.to_owned()),
+                        count: o.constant,
+                    }
+                });
+                let filters = filters.collect();
+                let sections = Sections {
+                    sections: vec![Section { index: 1, filters }],
+                };
+                ControlBehavior::Constant { sections }
+            } else {
+                ControlBehavior::from_decider_conditions(DeciderConditions {
+                    conditions: Some(vec![
+                        Condition::new(sig_t.clone(), start as i32, COMP_GE),
+                        Condition::new(sig_t.clone(), end as i32, COMP_LT)
+                            .with_compare_type(COMP_AND),
+                    ]),
+                    outputs: Some(outputs),
+                })
+            }
         };
         let mut output_ents: Vec<Entity> = Vec::with_capacity(ENCODE_CHUNK_SIZE);
 
@@ -448,6 +522,15 @@ impl<'a> BlueprintGenerator<'a> {
             let is_last_frame = info.next_frame.is_none();
 
             for group_i in 0..n_groups {
+                if matches!(self.args.mode, Mode::Static { const_cb: true, .. }) {
+                    let thresh = 0.60;
+                    set_progress(
+                        thresh,
+                        0.90,
+                        (group_i + 1) as f64 / n_groups as f64,
+                        &format!("Generating data (group {} / {n_groups})", group_i + 1),
+                    );
+                }
                 let state = &mut info.patch_states[group_i as usize]; // Individual state for each group of lamps
                 let frame_sigs: Vec<i32>;
                 let data_combs = &group_data_combs[group_i as usize];
@@ -597,13 +680,21 @@ impl<'a> BlueprintGenerator<'a> {
     fn make_wires(&mut self, mut writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let all_ents = &mut self.entity_data.ents;
         let all_wires = &mut self.entity_data.wires;
+        let n_wires = all_wires.len();
 
         // Swap all wires if requested (default uses red wires, so swap all for green).
         // Circuit network filters are already handled.
         if !self.args.prefer_green_wires {
             invert_wires(all_ents, all_wires);
         }
-        for (i, wires) in all_wires.chunks(ENCODE_CHUNK_SIZE).enumerate() {
+        for (i, wires) in all_wires.chunks(WIRE_ENCODE_CHUNK_SIZE).enumerate() {
+            let display_i = (i + 1) * WIRE_ENCODE_CHUNK_SIZE;
+            set_progress(
+                0.90,
+                1.00,
+                display_i as f64 / n_wires as f64,
+                &format!("Generating wires ({display_i} / {n_wires})..."),
+            );
             if i > 0 {
                 write_to(&mut writer, b",")?;
             }

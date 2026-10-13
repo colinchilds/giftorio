@@ -1,11 +1,11 @@
-macro_rules! arithmetic_virtual {
-    ($in_name:ident $op:tt $second:expr => $out_name:ident) => {
+macro_rules! arithmetic_conds {
+    ($in_sig:ident $op:tt $second:expr => $out_sig:ident) => {
         ArithmeticConditions {
-            first_signal: Some(Signal::new_virtual($in_name.clone())),
+            first_signal: Some($in_sig.clone()),
             second_signal: None,
             second_constant: Some($second as i32),
             operation: Some($crate::blueprint::macros::arithmetic_combinator_op!($op).to_owned()),
-            output_signal: Some(Signal::new_virtual($out_name.clone())),
+            output_signal: Some($out_sig.clone()),
         }
     };
 }
@@ -75,6 +75,6 @@ macro_rules! entity_idx_by_tag {
 }
 
 pub(crate) use arithmetic_combinator_op;
-pub(crate) use arithmetic_virtual;
+pub(crate) use arithmetic_conds;
 pub(crate) use entity_idx_by_tag;
 pub(crate) use mkwires;

@@ -36,6 +36,7 @@ pub fn generate_lamps(
     let prefer_horizontal_wires =
         args.prefer_horizontal_wires ^ matches!(args.image_rotation, Deg90 | Deg270);
     let base_pos = start_pos + dvec2(0.5, 0.5); // Lamps are centered on the middle of a tile
+    let mode = args.mode;
     let get_ent_num = |r: u32, c: u32| -> u32 { base_ent_n + r * grid_dim.x + c };
     let mut prev_ents_n: Vec<Option<u32>> = vec![None; grid_dim.x as usize];
     let curr_frame = curr_frame.as_ref().map(|f| f.to_rgba8());
@@ -88,13 +89,13 @@ pub fn generate_lamps(
                 });
             }
 
-            if !matches!(args.mode, Mode::Static { combs: false, .. }) {
+            if !matches!(mode, Mode::Static { combs: false, .. }) {
                 let is_top = prev_ents_n[c].is_none();
 
                 // prev_ents_n tracks the entity numbers for the rows above
                 // if it's none then we never connected the top row
-                if !matches!(args.mode, Mode::LampGrid) && is_top {
-                    if r == 0 || top_left_ent_n.is_none() {
+                if !matches!(mode, Mode::LampGrid | Mode::Static { timer: false, .. }) {
+                    if is_top && (r == 0 || top_left_ent_n.is_none()) {
                         if let Some(prev) = prev_ent_n {
                             wires.push([curr_ent_n, WIRE_R, prev, WIRE_R]); // horizontal timing wire
                         }

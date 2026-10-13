@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use crate::blueprint::models::Quality;
 use crate::macros::lazy_const;
 
 /// Timer entity positions.
@@ -23,13 +22,6 @@ pub const BLUEPRINT_VERSION: u64 = 562949955518464;
 /// Threshold used for binary grayscale conversion. (out of 256)
 pub const GRAYSCALE_THRESH: u8 = 128;
 
-lazy_const!(pub QUAL_NORMAL     : Quality = Quality :: Normal      );
-lazy_const!(pub QUAL_UNCOMMON   : Quality = Quality :: Uncommon    );
-lazy_const!(pub QUAL_RARE       : Quality = Quality :: Rare        );
-lazy_const!(pub QUAL_EPIC       : Quality = Quality :: Epic        );
-lazy_const!(pub QUAL_LEGENDARY  : Quality = Quality :: Legendary   );
-lazy_const!(pub QUAL_UNKNOWN    : Quality = Quality :: Unknown     );
-
 lazy_const!(pub DEC_CB          : str     = "decider-combinator"   );
 lazy_const!(pub ARI_CB          : str     = "arithmetic-combinator");
 lazy_const!(pub CONSTANT_COMB   : str     = "constant-combinator"  );
@@ -37,11 +29,13 @@ lazy_const!(pub SUBSTATION      : str     = "substation"           );
 lazy_const!(pub LAMP            : str     = "small-lamp"           );
 lazy_const!(pub BLUEPRINT       : str     = "blueprint"            );
 
+lazy_const!(pub DEFAULT_QUAL_KEY: str     = "<default>"            );
 lazy_const!(pub SIG_TYPE_VIRTUAL: str     = "virtual"              );
-lazy_const!(pub SIG_F           : str     = "signal-F"             );
-lazy_const!(pub SIG_S           : str     = "signal-S"             );
-lazy_const!(pub SIG_T           : str     = "signal-T"             );
-lazy_const!(pub SIG_EACH        : str     = "signal-each"          );
+
+pub const SIG_EACH: std::sync::LazyLock<crate::blueprint::models::Signal> =
+    std::sync::LazyLock::new(|| {
+        crate::blueprint::models::Signal::new_virtual(std::sync::Arc::from("signal-each"))
+    });
 
 /// Comparators
 pub const COMP_GT: &'static str = ">";

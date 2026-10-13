@@ -13,7 +13,7 @@ categories = ["multimedia::images", "multimedia::encoding"]
 crate-type = ["cdylib"]
 
 [dependencies]
-base64 = "0.13"
+base64 = "0.23"
 console_error_panic_hook = "0.1"
 flate2 = { version = "1.0.17", features = [
     "zlib-rs",

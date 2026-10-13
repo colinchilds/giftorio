@@ -1,0 +1,16 @@
+[
+  "Generated blueprints typically only require 1-10% of their max electricity consumptions.",
+  "GIFtorio supports up to 8k resolution at 60 fps, with nearly infinite video lengths!",
+  "For lower filesize, try setting 'Compression' to 'Delta'. This is lossless, but prevents seeking.",
+  "Create your own signal presets! GIFtorio can use signals provided by external mods using signal presets.",
+  "Backwards-compatible with almost all versions of Factorio using signal presets!",
+  "For smoother displays, try setting 'Wire Direction' to 'Horizontal' and 'Rotation' to '270° Clockwise'!",
+  "Tired of seeing gaps between the combinators and lamps? Try setting 'Margin Y' to '0'!",
+  "Using less 'Columns' can help reduce the blueprint filesize! Comes at the cost of increased combinators. Setting 'Columns' to '0' uses as many columns as possible.",
+  "Substations can only be of the quality the current signal preset supports.",
+  "The Thumbnail Resize Filter is the most optimized and CPU efficient filter!",
+  "Setting Signal Sorting to 'Auto' can greatly help reduce the blueprint filesize!",
+  "GIFtorio supports both images and videos! Supports any image the browser can load.",
+  "GIFtorio will automatically use the most comapct combinator layout to save tilespace!",
+  "For faster generation, try setting 'Output Format' to 'Blueprint'."
+]

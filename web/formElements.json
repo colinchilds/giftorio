@@ -1,0 +1,214 @@
+{
+  "mode": {
+    "name": "Output Mode",
+    "type": "select",
+    "options": {
+      "full": { "name": "Everything", "tooltip": "(Recommended) The full package." },
+      "lamps": { "name": "Lamps Only", "tooltip": "Generate only lamps for the blueprint, with the wires. No image data." },
+      "lampGrid": { "name": "Lamp Grid", "tooltip": "Generate a grid of lamps, with each section internally connected by wires." }
+    },
+    "tooltip": "The blueprint parts to include. Changes if the input file is an image or a video.",
+    "splash": "Modes other than 'Everything' will not use the input video / image."
+  },
+  "includeSubstations": {
+    "name": "Include Substations",
+    "type": "checkbox",
+    "tooltip": "Whether to include substations in the blueprint.",
+    "splash": "Substations are not required on space platforms."
+  },
+  "staticImageMode": {
+    "name": "Static Image Mode",
+    "type": "select",
+    "options": {
+      "constant": {
+        "name": "Constant",
+        "tooltip": "(Not recommended) Use constant combinators for all lamps, with no timing signals. Constant combinators can only hold up to 1000 signals. Prefer using Deciders instead if possible.",
+        "splash": "Only applies to static images."
+      },
+      "decider": {
+        "name": "Decider",
+        "tooltip": "Use decider combinators for all lamps, with no timing signals.",
+        "splash": "Only applies to static images."
+      },
+      "lamps": {
+        "name": "Lamps Only",
+        "tooltip": "Use only lamps for the image. This reduces filesize, but colour depth is greatly reduced as lamps cannot be fully black unless they use signals from the circuit network.",
+        "splash": "Only applies to static images."
+      },
+      "video": {
+        "name": "1 Frame",
+        "tooltip": "Renders the input image as a 1 FPS, 1-second video with 1 frame. This is not recommended as the output image will (intentionally) flicker black every second.",
+        "splash": "Only applies to static images."
+      }
+    },
+    "tooltip": "The blueprint parts to include. Changes if the input file is an image or a video."
+  },
+  "customWidth": {
+    "name": "Width",
+    "type": "number",
+    "scale": "ln10",
+    "min": 1,
+    "max": 8000,
+    "tooltip": "Sets a custom width (in pixels) for the the lamps."
+  },
+  "customHeight": {
+    "name": "Height",
+    "type": "number",
+    "scale": "ln10",
+    "min": 1,
+    "max": 8000,
+    "tooltip": "Sets a custom height (in pixels) for the the lamps."
+  },
+  "signalCompressionType": {
+    "name": "Compression",
+    "type": "select",
+    "tooltip": "(Lossless) Reduces filesize by storing unchanged pixels. May affect how the output video can be played.",
+    "options": {
+      "none": { "name": "None", "tooltip": "No compression." },
+      "temporal": {
+        "name": "Temporal (static)",
+        "tooltip": "Uses ~2x more combinators, but reduces filesize ~2-4x. Stores unchanged pixels in a dedicated combinator. The resulting blueprint can be paused / seeked safely without corruption, at the cost of reduced compression value in comparison to 'Delta' compression."
+      },
+      "delta": {
+        "name": "Delta (volatile)",
+        "tooltip": "Stores the difference (delta) between each frame, which depends on all previous frames. Blueprints made with Delta compression cannot be seeked or paused."
+      }
+    }
+  },
+  "temporalCompressionWindow": {
+    "name": "Compression Window (ms)",
+    "type": "number",
+    "tooltip": "This setting should be fine-tuned to the amount of movement in the GIF. Larger windows can give greater compression, but if large portions of the GIF are moving, less compression is possible in comparison to using shorter sampling times.",
+    "min": 100,
+    "max": 5000,
+    "step": 100,
+    "splash": "Only applicable to 'Temporal Compression'."
+  },
+  "targetFps": {
+    "name": "Framerate (FPS)",
+    "type": "number",
+    "tooltip": "Maximum framerate of the output blueprint. The blueprint will not exceed the original framerate of the GIF. Higher framerates require more frames to be generated, increasing the size of the blueprint.",
+    "splash": "Must be a factor of '60' to match Factorio's tick-rate.",
+    "values": [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60]
+  },
+  "signalSorting": {
+    "name": "Signal Sorting",
+    "type": "select",
+    "options": {
+      "auto": { "name": "Auto", "tooltip": "Auto-select the best sorting method based on the output format." },
+      "none": { "name": "Compatibility", "tooltip": "Sort signals as they appear in Factorio v2.0.77." },
+      "compression": { "name": "Compression", "tooltip": "Minimize blueprint file size, but JSON may be larger." },
+      "json": { "name": "Best JSON", "tooltip": "Minimizes raw JSON size, but reduces compression value." }
+    },
+    "tooltip": "Affects ordering of lamp and data signals. Does not alter in-game performance.",
+    "splash": "Determines how (and if) internal field names are sorted to reduce file size."
+  },
+  "grayscaleBits": {
+    "name": "Color Format",
+    "type": "select",
+    "tooltip": "The color format used to store the image. Greatly affects the blueprint size.",
+    "options": [
+      ["0", { "name": "Full Color", "tooltip": "Approximate the original GIF colors to RGB8." }],
+      ["8", { "name": "8-bit Grayscale", "tooltip": "256 shades of gray; reduces blueprint size up to 4x." }],
+      ["4", { "name": "4-bit Grayscale", "tooltip": "16 shades of gray; reduces blueprint size up to 8x." }],
+      ["1", { "name": "Black & White", "tooltip": "2 shades of gray; reduces blueprint size up to 32x." }]
+    ],
+    "splash": "Using 'Grayscale' can reduce the blueprint size by 75-95%, but removes all color."
+  },
+  "resamplingFilter": {
+    "name": "Resize Filter",
+    "type": "select",
+    "tooltip": "The filter used to resample the image.",
+    "options": {
+      "triangle": { "name": "Triangle", "tooltip": "Fast; CPU friendly; good for most videos." },
+      "catrom": { "name": "Catmull-Rom", "tooltip": "Consistent; good sharpness and stability." },
+      "gaussian": { "name": "Gaussian", "tooltip": "Smooth; very stable; no aliasing, but may blur pixel art." },
+      "lanczos3": { "name": "Lanczos3", "tooltip": "Crisp detail; sharper edges; may shimmer / have aliasing." },
+      "nearest": { "name": "Nearest", "tooltip": "Sharp and 'blocky'. Great for pixel art." },
+      "thumbnail": { "name": "Thumbnail", "tooltip": "Fastest; optimized, but low quality." }
+    },
+    "splash": "Only used to resize the video to the blueprint's dimensions."
+  },
+  "maxGroupSize": {
+    "name": "Columns",
+    "type": "number",
+    "compact": true,
+    "min": 0,
+    "max": 10,
+    "step": 1,
+    "tooltip": "Large image / videos will be split into detached groups, with each group using their own signals. This setting sets a custom maximum size for groups. Lowering this setting can help increase compression value, but requires more space to physically place the blueprint.",
+    "splash": "If set to '0', auto-infers the maximum possible group size."
+  },
+  "displayMarginY": {
+    "name": "Margin Y",
+    "type": "number",
+    "compact": true,
+    "min": 0,
+    "max": 4,
+    "step": 1,
+    "tooltip": "Sets the vertical margin between the top of the lamps and the bottom of the data combinators."
+  },
+  "imageRotation": {
+    "name": "Rotation",
+    "type": "select",
+    "tooltip": "Rotates the GIF before processing it, whilst keeping data combinators in the same location. This can be used to change the location of data combinators; e.g. to put combinatorson the left side instead of the right, set this to 90°, and then inside Factorio, rotate the blueprint by -90° to match the original GIF.",
+    "options": { "none": "None", "deg90": "90° Clockwise", "deg180": "180° Clockwise", "deg270": "270° Clockwise" },
+    "splash": "Wire connections will maintain the same rotation relative to the GIF. Combinators will always appear in the top-left corner."
+  },
+  "flippedAxes": {
+    "name": "Flip Axes",
+    "type": "select",
+    "tooltip": "Mirrors the GIF before processing it, whilst keeping data combinators in the same location. This can be utilised to change the location of data combinators. E.g. to put combinators on the right of the top side instead of the right, set this to 'X', and then inside Factorio, flip the blueprint horizontally to match the original GIF.",
+    "options": { "none": "None", "x": "X", "y": "Y", "both": "Both" },
+    "splash": "Combinators will always appear in the top-left corner."
+  },
+  "wireColor": {
+    "name": "Primary Wire Color",
+    "type": "select",
+    "tooltip": "The color of the wires used to connect the lamps.",
+    "options": {
+      "green": {
+        "name": "Green",
+        "tooltip": "Usually recommended as green wires connect horizontally in straight lines and take up less space."
+      },
+      "red": {
+        "name": "Red",
+        "tooltip": "Wires are darker and harder to see but take up more screen space as the wire does not connect straight, and may obscure the video more."
+      }
+    },
+    "splash": "The wire color used will slightly tint the image the same color. Note that changing this setting will completely flip all wires (all red wires become green, all green wires become red, and vice versa)."
+  },
+  "connectionDirection": {
+    "name": "Wire Direction",
+    "type": "select",
+    "tooltip": "Whether the majority of lamp wires should connect horizontally or vertically.",
+    "options": {
+      "horizontal": {
+        "name": "Horizontal",
+        "tooltip": "Recommended as they take minimal screen space, but will require vertical connections between groups that can be quite visible. Seams can be removed by setting 'Rotation' to '90° clockwise'."
+      },
+      "vertical": { "name": "Vertical", "tooltip": "(Not recommended) Connections are much more noticeable." }
+    },
+    "splash": "Horizontal wires are recommended for most GIFs as they are more obscure. If 'Rotation' is set, wires will still connect in the same direction relative to the original GIF's rotation."
+  },
+  "outputFormat": {
+    "name": "Output Format",
+    "type": "select",
+    "tooltip": "Selects the format of the output file. If Factorio has issues importing blueprint strings, try using the JSON format.",
+    "options": {
+      "blueprint": {
+        "name": "Blueprint",
+        "tooltip": "The typical Factorio blueprint format. Can be copy-pasted into the 'Import Blueprint String' dialog."
+      },
+      "json": {
+        "name": "Raw JSON",
+        "tooltip": "The raw JSON (uncompressed) blueprint file. Can also be imported in the 'Import Blueprint String' dialog."
+      },
+      "rawCompressed": {
+        "name": "Raw ZLIB",
+        "tooltip": "DOES NOT WORK IN FACTORIO. The raw ZLIB file, before base64 string encoding. Use this for debugging purposes."
+      }
+    },
+    "splash": "Tip: From Factorio v2.0.25 onwards, JSON and blueprint files can be imported directly into the game via drag-and-drop."
+  }
+}

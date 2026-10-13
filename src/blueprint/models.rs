@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 
 #[derive(Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct BlueprintBook {
     pub icons: Option<Vec<Icon>>,
     pub active_index: u32,
@@ -53,40 +52,11 @@ pub struct Icon {
     pub index: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
-pub enum Quality {
-    #[serde(rename = "quality-unknown")]
-    Unknown,
-    #[serde(rename = "normal")]
-    Normal,
-    #[serde(rename = "uncommon")]
-    Uncommon,
-    #[serde(rename = "rare")]
-    Rare,
-    #[serde(rename = "epic")]
-    Epic,
-    #[serde(rename = "legendary")]
-    Legendary,
-}
-impl Quality {
-    fn is_none_or_normal(value: &Option<Arc<Quality>>) -> bool {
-        value.as_ref().is_none_or(|v| **v == Quality::Normal)
-    }
-}
-impl std::fmt::Display for Quality {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Normal => write!(f, "normal"),
-            Self::Uncommon => write!(f, "uncommon"),
-            Self::Rare => write!(f, "rare"),
-            Self::Epic => write!(f, "epic"),
-            Self::Legendary => write!(f, "legendary"),
-            Self::Unknown => write!(f, "unknown"),
-        }
-    }
+pub fn is_none_or_normal_quality(value: &Option<Arc<str>>) -> bool {
+    value.as_ref().is_none_or(|v| **v == *"normal")
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Signal {
     #[serde(
         rename = "type",
@@ -95,8 +65,8 @@ pub struct Signal {
     )]
     pub type_: Arc<str>,
     pub name: Arc<str>,
-    #[serde(skip_serializing_if = "Quality::is_none_or_normal")]
-    pub quality: Option<Arc<Quality>>,
+    #[serde(skip_serializing_if = "is_none_or_normal_quality")]
+    pub quality: Option<Arc<str>>,
 }
 impl Signal {
     pub fn new_virtual(name: Arc<str>) -> Self {
@@ -117,7 +87,7 @@ impl Signal {
     }
 }
 
-pub type Wire = [u32; 4];
+pub type Wire = [u32; 4]; // TODO: could use an unpacked (u32, u8, u32, u8)-type data structure for better memory
 
 mod dvec2_xy {
     use glam::DVec2;
@@ -156,8 +126,8 @@ pub struct Entity {
     pub control_behavior: Option<ControlBehavior>,
     #[serde(skip_serializing_if = "is_none_or_empty_string")]
     pub player_description: Option<String>,
-    #[serde(skip_serializing_if = "Quality::is_none_or_normal")]
-    pub quality: Option<Arc<Quality>>,
+    #[serde(skip_serializing_if = "is_none_or_normal_quality")]
+    pub quality: Option<Arc<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub always_on: Option<bool>,
     #[serde(skip)]
@@ -206,6 +176,10 @@ impl Entity {
         self.direction = Some(direction);
         self
     }
+    pub fn with_quality(mut self, quality: Option<Arc<str>>) -> Self {
+        self.quality = quality;
+        self
+    }
 
     /// Custom tag for the entity. This does not get serialized.
     ///
@@ -216,10 +190,7 @@ impl Entity {
     }
 
     fn is_none_or_0(value: &Option<u32>) -> bool {
-        match value {
-            None | Some(0) => true,
-            _ => false,
-        }
+        return matches!(value, None | Some(0));
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -311,16 +282,21 @@ pub struct DeciderConditions {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Filter {
     pub index: u32,
-    #[serde(rename = "type")]
+    #[serde(
+        rename = "type",
+        default = "Signal::default_signal_type",
+        skip_serializing_if = "Signal::is_default_signal_type"
+    )]
     pub type_: Arc<str>,
     pub name: Arc<str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<Arc<Quality>>, // Note: MUST use Option::is_none, NOT Signal::is_none_or_normal
+    pub quality: Option<Arc<str>>, // Note: MUST use Option::is_none, NOT is_none_or_normal_quality
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comparator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub count: Option<u32>,
+    pub count: Option<i32>,
 }
+
 pub trait NetworkSwapper {
     fn swap_networks(&mut self);
 }
@@ -382,9 +358,9 @@ impl Condition {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CombinatorOutput {
     pub copy_count_from_input: Option<bool>,
+    pub signal: Option<Arc<Signal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constant: Option<i32>,
-    pub signal: Option<Arc<Signal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub networks: Option<NetworkFilters>,
 }
@@ -412,28 +388,10 @@ pub struct NetworkFilters {
 
 #[allow(dead_code)]
 impl NetworkFilters {
-    pub fn all() -> Self {
-        Self {
-            red: true,
-            green: true,
-        }
-    }
-    pub fn green() -> Self {
-        Self {
-            red: false,
-            green: true,
-        }
-    }
-    pub fn none() -> Self {
-        Self {
-            red: false,
-            green: false,
-        }
-    }
-    pub fn red() -> Self {
-        Self {
-            red: true,
-            green: false,
-        }
+    #[inline(always)]
+    pub fn new(modes: &str) -> Self {
+        let red = modes.contains('r');
+        let green = modes.contains('g');
+        Self { red, green }
     }
 }

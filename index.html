@@ -1,60 +1,67 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
 
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#000000" />
+    <!-- SEO Meta Tags -->
+    <title>GIFtorio</title>
+    <meta
+      name="description"
+      content="GIFtorio converts animated GIFs into Factorio blueprints for a stunning in-game animated display using circuit networks and lamps. Works on vanilla Factorio 2.0 with Space Age DLC."
+    />
+    <meta name="keywords" content="GIFtorio, GIF, Factorio, Blueprint, Space Age, Factorio GIFs, display" />
+    <link rel="canonical" href="https://giftor.io" />
 
-  <!-- SEO Meta Tags -->
-  <title>GIFtorio</title>
-  <meta name="description" content="GIFtorio converts animated GIFs into Factorio blueprints for a stunning in-game animated display using circuit networks and lamps. Works on vanilla Factorio 2.0 with Space Age DLC." />
-  <meta name="keywords" content="GIFtorio, GIF, Factorio, Blueprint, Space Age, Factorio GIFs, display" />
-  <link rel="canonical" href="https://giftor.io" />
+    <!-- Open Graph / Facebook -->
+    <meta property="og:title" content="GIFtorio – Convert GIFs to Factorio Blueprints" />
+    <meta property="og:description" content="Create animated in-game displays in Factorio by converting GIFs to blueprints." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://giftor.io" />
+    <meta property="og:image" content="https://github.com/colinchilds/giftorio/blob/main/web/assets/img/nyan.gif?raw=true" />
 
-  <!-- Open Graph / Facebook -->
-  <meta property="og:title" content="GIFtorio – Convert GIFs to Factorio Blueprints" />
-  <meta property="og:description" content="Create animated in-game displays in Factorio by converting GIFs to blueprints." />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://giftor.io" />
-  <meta property="og:image" content="https://github.com/colinchilds/giftorio/blob/main/web/assets/img/nyan.gif?raw=true" />
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GIFtorio – Convert GIFs to Factorio Blueprints" />
+    <meta name="twitter:description" content="Create animated in-game displays in Factorio by converting GIFs to blueprints." />
+    <meta name="twitter:image" content="https://github.com/colinchilds/giftorio/blob/main/web/assets/img/nyan.gif?raw=true" />
 
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="GIFtorio – Convert GIFs to Factorio Blueprints" />
-  <meta name="twitter:description" content="Create animated in-game displays in Factorio by converting GIFs to blueprints." />
-  <meta name="twitter:image" content="https://github.com/colinchilds/giftorio/blob/main/web/assets/img/nyan.gif?raw=true" />
+    <!-- Favicon -->
+    <link rel="icon" href="/web/favicon.ico" />
 
-  <!-- Favicon -->
-  <link rel="icon" href="/web/favicon.ico" />
+    <!-- Preconnect for fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,200;0,300;0,400;0,600;0,700;0,900;1,200;1,300;1,400;1,600;1,700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Matomo -->
+    <script>
+      var _paq = (window._paq = window._paq || []);
+      /* tracker methods like "setCustomDimension" should be called before "trackPageView" */
+      _paq.push(["trackPageView"]);
+      _paq.push(["enableLinkTracking"]);
+      (function () {
+        var u = "//stats.giftor.io/";
+        _paq.push(["setTrackerUrl", u + "matomo.php"]);
+        _paq.push(["setSiteId", "1"]);
+        var d = document,
+          g = d.createElement("script"),
+          s = d.getElementsByTagName("script")[0];
+        g.async = true;
+        g.src = u + "matomo.js";
+        s.parentNode.insertBefore(g, s);
+      })();
+    </script>
+    <!-- End Matomo Code -->
+  </head>
 
-  <!-- Preconnect for fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,200;0,300;0,400;0,600;0,700;0,900;1,200;1,300;1,400;1,600;1,700&display=swap" rel="stylesheet">
-  <!-- Matomo -->
-  <script>
-    var _paq = window._paq = window._paq || [];
-    /* tracker methods like "setCustomDimension" should be called before "trackPageView" */
-    _paq.push(['trackPageView']);
-    _paq.push(['enableLinkTracking']);
-    (function() {
-      var u="//stats.giftor.io/";
-      _paq.push(['setTrackerUrl', u+'matomo.php']);
-      _paq.push(['setSiteId', '1']);
-      var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
-      g.async=true; g.src=u+'matomo.js'; s.parentNode.insertBefore(g,s);
-    })();
-  </script>
-  <!-- End Matomo Code -->
-</head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
 
-
-<body>
-  <noscript>You need to enable JavaScript to run this app.</noscript>
-  <div id="root"></div>
-
-  <script src="/web/index.jsx" type="module"></script>
-</body>
-
+    <script src="/web/index.jsx" type="module"></script>
+  </body>
 </html>

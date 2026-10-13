@@ -1,51 +1,71 @@
-import init, { run_blueprint, set_progress_callback } from "../pkg/giftorio_wasm.js";
+import { SignalPreset } from "@/data.jsx";
+import init, { init as prepare_wasm, run_blueprint, set_progress_callback, set_signal_data } from "../pkg/giftorio_wasm.js";
 
-async function run() {
-	await init();
+async function main() {
+  const wasmReady = (async () => {
+    await init();
+    prepare_wasm();
+    set_progress_callback((percentage: number, status: string) => postMessage({ progress: { percentage, status } }));
+  })();
 
-	set_progress_callback((percentage: number, status: string) => postMessage({ progress: { percentage, status } }));
+  let writerReadyResolve: (() => void) | null = null;
+  let writerReady: Promise<void> = Promise.resolve();
 
-	const pendingWrites = new Map();
-	let nextWriteId = 0;
+  const waitForWriterReady = () => new Promise<void>((resolve) => (writerReadyResolve = resolve));
 
-	addEventListener("message", async (event) => {
-		if (event.data.type === "chunkWritten") {
-			const pending = pendingWrites.get(event.data.id);
-			if (!pending) return;
+  const pendingWrites = new Map();
+  let nextWriteId = 0;
+  let setSignalDataPromise: Promise<void> = Promise.resolve();
 
-			pendingWrites.delete(event.data.id);
-			event.data.error ? pending.reject(new Error(event.data.error)) : pending.resolve();
-		} else if (event.data.generate) {
-			const { imageData, args } = event.data.generate;
-			const { outputFormat } = args;
+  addEventListener("message", async (event) => {
+    await wasmReady;
 
-			try {
-				if (outputFormat === "blueprint") {
-					postMessage({ type: "start", filename: "blueprint.bp" });
-					// Add Factorio verson prefix
-					const id = nextWriteId++;
-					const data = new TextEncoder().encode("0");
-					postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
-				} else {
-					postMessage({ type: "start", filename: "blueprint.json" });
-				}
-				const blueprintMetadata = await run_blueprint(
-					args,
-					imageData,
-					(data: Uint8Array) =>
-						new Promise((resolve, reject) => {
-							const id = nextWriteId++;
-							pendingWrites.set(id, { resolve, reject });
-							postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
-						}),
-				);
-				postMessage({ blueprintMetadata });
-				postMessage({ type: "done" });
-			} catch (e) {
-				postMessage({ error: e?.toString() ?? String(e) });
-			}
-		}
-	});
+    if (event.data.type === "chunkWritten") {
+      const pending = pendingWrites.get(event.data.id);
+      if (!pending) return;
+
+      pendingWrites.delete(event.data.id);
+      event.data.error ? pending.reject(new Error(event.data.error)) : pending.resolve();
+    } else if (event.data.generate) {
+      const { imageData, args } = event.data.generate;
+      const { outputFormat } = args;
+
+      await setSignalDataPromise;
+
+      try {
+        waitForWriterReady();
+
+        if (outputFormat === "blueprint") {
+          postMessage({ type: "start", filename: "blueprint.txt" });
+        } else if (outputFormat === "json") {
+          postMessage({ type: "start", filename: "blueprint.json" });
+        } else if (outputFormat === "rawCompressed") {
+          postMessage({ type: "start", filename: "blueprint.zlib" });
+        } else {
+          console.error("Unknown output format:", outputFormat);
+        }
+
+        await writerReady;
+
+        const blueprintMetadata = await run_blueprint(args, imageData, (data: Uint8Array) => {
+          return new Promise<void>((resolve, reject) => {
+            const id = nextWriteId++;
+            pendingWrites.set(id, { resolve, reject });
+            postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
+          });
+        });
+        postMessage({ blueprintMetadata });
+        postMessage({ type: "done" });
+      } catch (e) {
+        postMessage({ error: e?.toString() ?? String(e) });
+      }
+    } else if (event.data.signalPreset) {
+      const preset: SignalPreset = event.data.signalPreset;
+      setSignalDataPromise = set_signal_data(new TextEncoder().encode(JSON.stringify(preset)));
+    } else if (event.data.type === "writerReady") {
+      writerReadyResolve?.();
+      writerReadyResolve = null;
+    }
+  });
 }
-
-run();
+main();

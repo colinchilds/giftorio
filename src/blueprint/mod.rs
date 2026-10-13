@@ -5,7 +5,7 @@ pub mod encoder;
 mod lamp;
 mod macros;
 pub mod models;
-mod signals;
+pub mod signals;
 mod substation;
 mod timer;
 mod util;

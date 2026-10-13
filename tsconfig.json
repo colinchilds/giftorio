@@ -1,16 +1,19 @@
 {
-	"compilerOptions": {
-		"strict": true,
-		"target": "ESNext",
-		"module": "ESNext",
-		"moduleResolution": "bundler",
-		"allowSyntheticDefaultImports": true,
-		"esModuleInterop": true,
-		"jsx": "preserve",
-		"jsxImportSource": "solid-js",
-		"types": ["vite/client"],
-		"noEmit": true,
-		"resolveJsonModule": true,
-		"isolatedModules": true
-	}
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./web/*"]
+    },
+    "strict": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client"],
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  }
 }
