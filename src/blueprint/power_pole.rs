@@ -68,9 +68,6 @@ impl PowerPoleOccupied {
             return (poles, wires, base_ent_n);
         }
 
-        // f64 doesn't implement Ord, so use total_cmp.
-        // Sort by Y first, then X.
-        let get_tag = |pos: DVec2| format!("sub-({},{})", pos.x, pos.y);
         let horiz = true ^ matches!(args.image_rotation, Deg90 | Deg270);
 
         self.requests
@@ -83,22 +80,36 @@ impl PowerPoleOccupied {
             let mut en = self.ref_entity.clone();
             en.entity_number = curr_ent_n;
             en.position += req;
-
-            let pos = en.position;
-            poles.push(en.with_tag(&get_tag(pos)));
-
+            poles.push(en);
             curr_ent_n += 1;
         }
+
+        let mut prev_pole: Option<Entity> = None;
 
         for pole in &poles {
             let pos = pole.position;
 
-            if let Some(prev) = entity_idx_by_tag!(poles, get_tag(pos - dvec2(-cov, 0.0))) {
-                wires.push([prev, WIRE_C, pole.entity_number, WIRE_C]);
+            if let Some(prev) = prev_pole {
+                if pos.x - cov == prev.position.x {
+                    wires.push([prev.entity_number, WIRE_C, pole.entity_number, WIRE_C]);
+                }
             }
-            if let Some(prev) = entity_idx_by_tag!(poles, get_tag(pos - dvec2(0.0, cov))) {
-                wires.push([prev, WIRE_C, pole.entity_number, WIRE_C]);
+            {
+                let b = pos - dvec2(0.0, cov);
+                if let Ok(prev) = poles.binary_search_by(|e| {
+                    let a = e.position;
+                    a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x))
+                }) {
+                    wires.push([
+                        poles[prev].entity_number,
+                        WIRE_C,
+                        pole.entity_number,
+                        WIRE_C,
+                    ]);
+                }
             }
+
+            prev_pole = Some(pole.clone());
         }
 
         return (poles, wires, curr_ent_n);
