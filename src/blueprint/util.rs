@@ -1,5 +1,4 @@
 use crate::blueprint::{constants::*, models::*};
-use glam::DVec2;
 use std::io;
 use wasm_bindgen::*;
 
@@ -204,33 +203,6 @@ impl<T: Clone> OneOrMany<T> {
         match self {
             Self::One(v) => vec![v.clone()],
             Self::Many(v) => v.clone(),
-        }
-    }
-}
-
-pub struct DBounds2 {
-    pub min: DVec2,
-    pub max: DVec2,
-}
-impl DBounds2 {
-    pub fn dim(&self) -> DVec2 {
-        self.max - self.min
-    }
-
-    /// Extends this bound to include the given bounds.
-    pub fn include(&mut self, other: &Self) {
-        self.min = self.min.min(other.min);
-        self.max = self.max.max(other.max);
-    }
-
-    pub fn offset(&self) -> DVec2 {
-        -self.min
-    }
-
-    pub fn default() -> Self {
-        Self {
-            min: DVec2::INFINITY,
-            max: DVec2::NEG_INFINITY,
         }
     }
 }

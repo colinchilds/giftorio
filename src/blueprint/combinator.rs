@@ -284,7 +284,7 @@ fn load_comb_pos_json(json: &str) -> Result<Vec<CombinatorPositionData>, JsValue
         blueprint: String,
     }
 
-    fn get_bounding_box(en: &Entity) -> Result<DBounds2, JsValue> {
+    fn get_bounding_box(en: &Entity) -> Result<std::ops::Range<DVec2>, JsValue> {
         let offset = DVec2::from(match en.name.as_ref() {
             name if name == &**ARI_CB || name == &**DEC_CB => match en.direction.unwrap_or(0) {
                 DIR_U | DIR_D => (1.0, 2.0),
@@ -294,10 +294,7 @@ fn load_comb_pos_json(json: &str) -> Result<Vec<CombinatorPositionData>, JsValue
             name if name == &**CONSTANT_COMB => (1.0, 1.0),
             _ => return Err(JsValue::from_str("Unsupported entity type")),
         });
-        Ok(DBounds2 {
-            min: en.position - offset / 2.0,
-            max: en.position + offset / 2.0,
-        })
+        Ok((en.position - offset / 2.0)..(en.position + offset / 2.0))
     }
 
     Ok(serde_json::from_str::<Vec<CombinatorPositionJson>>(&json)
@@ -317,12 +314,14 @@ fn load_comb_pos_json(json: &str) -> Result<Vec<CombinatorPositionData>, JsValue
                 zlib.read_to_string(&mut buf).map_js_err("base64 error")?;
 
                 let mut blueprint = Blueprint::from_json(buf).map_js_err("JSON error")?;
-                let mut bounds = DBounds2::default();
+                let mut bounds = DVec2::INFINITY..DVec2::NEG_INFINITY;
 
                 for en in blueprint.blueprint.entities.iter() {
-                    bounds.include(&get_bounding_box(en)?);
+                    let en_bounds = get_bounding_box(en)?;
+                    bounds.start = bounds.start.min(en_bounds.start);
+                    bounds.end = bounds.end.max(en_bounds.end);
                 }
-                let offset = bounds.offset();
+                let offset = -bounds.start;
 
                 for en in blueprint.blueprint.entities.iter_mut() {
                     en.position += offset;
@@ -330,7 +329,7 @@ fn load_comb_pos_json(json: &str) -> Result<Vec<CombinatorPositionData>, JsValue
 
                 Ok(CombinatorPositionData {
                     compression: cb.compression.clone(),
-                    dim: bounds.dim(),
+                    dim: bounds.end - bounds.start,
                     grayscale_bits: cb.grayscale_bits.to_vec(),
                     blueprint,
                 })

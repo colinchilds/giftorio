@@ -2,6 +2,7 @@ local WINDOW_NAME = "custom_signals_copy_window"
 local p = game.player
 local sigs = {}
 local quals = {}
+local poles = {}
 
 local function add(p, typ)
     for name, signal in pairs(p) do
@@ -11,10 +12,32 @@ local function add(p, typ)
     end
 end
 pcall(function()
-    for name, quality in pairs(prototypes.quality) do
+    for name in pairs(prototypes.quality) do
         quals[#quals + 1] = '"' .. name .. '"'
     end
 end)
+
+for name, prototype in pairs(prototypes.entity) do
+    if prototype.type == "electric-pole" then
+        local dists = {}
+
+        for quality_name in pairs(prototypes.quality) do
+            dists[#dists + 1] = string.format(
+                '{ "quality": "%s", "supply_area_distance": %s }',
+                quality_name,
+                prototype.get_supply_area_distance(quality_name)
+            )
+        end
+
+        poles[#poles + 1] = string.format(
+            '    { "name": "%s", "supply_area_distances": %s, "tile_width": %s, "tile_height": %s }',
+            name,
+            string.format('[%s]', table.concat(dists, ", ")),
+            prototype.tile_width,
+            prototype.tile_height
+        )
+    end
+end
 
 add(prototypes.item, "item")
 add(prototypes.fluid, "fluid")
@@ -44,9 +67,10 @@ else
     f.add{type="label", caption="Select the signals below and press Ctrl+C to copy it."}
 
     local text = string.format(
-        '{\n    "signals": [\n    %s\n    ],\n    "qualities": [%s]\n}',
+        '{\n    "signals": [\n    %s\n    ],\n    "qualities": [%s],\n    "electric_poles": [\n    %s\n    ]\n}',
         table.concat(sigs, ",\n    "),
-        table.concat(quals, ", ")
+        table.concat(quals, ", "),
+        table.concat(poles, ",\n    ")
     )
     local t = f.add{type="text-box", name="bp_text", text=text}
     t.style.width = 600

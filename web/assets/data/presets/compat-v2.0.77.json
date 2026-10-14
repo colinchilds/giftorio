@@ -1204,5 +1204,43 @@
     { "type": "virtual", "name": "signal-weapon" },
     { "type": "virtual", "name": "signal-ghost" }
   ],
-  "qualities": ["normal", "quality-unknown"]
+  "qualities": ["normal", "quality-unknown"],
+  "electric_poles": [
+    {
+      "name": "small-electric-pole",
+      "supply_area_distances": [
+        { "quality": "normal", "supply_area_distance": 2.5 },
+        { "quality": "quality-unknown", "supply_area_distance": 2.5 }
+      ],
+      "tile_width": 1,
+      "tile_height": 1
+    },
+    {
+      "name": "medium-electric-pole",
+      "supply_area_distances": [
+        { "quality": "normal", "supply_area_distance": 3.5 },
+        { "quality": "quality-unknown", "supply_area_distance": 3.5 }
+      ],
+      "tile_width": 1,
+      "tile_height": 1
+    },
+    {
+      "name": "big-electric-pole",
+      "supply_area_distances": [
+        { "quality": "normal", "supply_area_distance": 2 },
+        { "quality": "quality-unknown", "supply_area_distance": 2 }
+      ],
+      "tile_width": 2,
+      "tile_height": 2
+    },
+    {
+      "name": "substation",
+      "supply_area_distances": [
+        { "quality": "normal", "supply_area_distance": 9 },
+        { "quality": "quality-unknown", "supply_area_distance": 9 }
+      ],
+      "tile_width": 2,
+      "tile_height": 2
+    }
+  ]
 }

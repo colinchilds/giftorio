@@ -14,6 +14,12 @@ export const CURR_SIGNAL_PRESET_KEY = "giftorio-curr-signal-preset-key";
 export interface SignalData {
   signals: { type: string; name: string }[];
   qualities: string[];
+  electric_poles: {
+    name: string;
+    supply_area_distances: { quality: string; supply_area_distance: number }[];
+    tile_width: number;
+    tile_height: number;
+  }[];
 }
 export interface SignalPreset extends SignalData {
   description: string;
@@ -36,16 +42,38 @@ const SIGNAL_DATA_SCHEMA = {
       type: "array",
       items: { type: "string" },
     },
+    electric_poles: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          supply_area_distances: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                quality: { type: "string" },
+                supply_area_distance: { type: "number" },
+              },
+              required: ["quality", "supply_area_distance"],
+            },
+          },
+          tile_width: { type: "number" },
+          tile_height: { type: "number" },
+        },
+        required: ["name", "supply_area_distances", "tile_width", "tile_height"],
+      },
+    },
   },
-  required: ["signals", "qualities"],
-  additionalProperties: false,
+  required: ["signals", "qualities", "electric_poles"],
 } satisfies JSONSchemaType<SignalData>;
 const ajv = new Ajv();
 
 export function setInitialValues(values: object) {
   localStorage.setItem(FORM_DATA_KEY, JSON.stringify(values));
 }
-export function getInitialValues(): Omit<typeof _INITIAL_VALUES, "substationQuality"> & { substationQuality: string | null } {
+export function getInitialValues(): typeof _INITIAL_VALUES {
   const prev = localStorage.getItem(FORM_DATA_KEY);
 
   if (prev) {
