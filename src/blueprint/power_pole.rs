@@ -1,6 +1,7 @@
-use crate::blueprint::{constants::*, macros::*, models::*};
+use crate::blueprint::{constants::*, models::*};
 use crate::models::ImageRotation::*;
 use glam::{dvec2, DVec2};
+use std::collections::BTreeMap;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(serde::Deserialize)]
@@ -68,7 +69,29 @@ impl PowerPoleOccupied {
             return (poles, wires, base_ent_n);
         }
 
+        use std::cmp::Ordering;
+
+        struct OrderedDVec2(DVec2);
+        impl Ord for OrderedDVec2 {
+            fn cmp(&self, other: &Self) -> Ordering {
+                let (a, b) = (&self.0, &other.0);
+                a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x))
+            }
+        }
+        impl PartialOrd for OrderedDVec2 {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl PartialEq for OrderedDVec2 {
+            fn eq(&self, other: &Self) -> bool {
+                self.cmp(other) == Ordering::Equal
+            }
+        }
+        impl Eq for OrderedDVec2 {}
+
         let horiz = true ^ matches!(args.image_rotation, Deg90 | Deg270);
+        let mut pole_map = BTreeMap::<OrderedDVec2, u32>::new();
 
         self.requests
             .sort_by(|a, b| a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x)));
@@ -80,36 +103,20 @@ impl PowerPoleOccupied {
             let mut en = self.ref_entity.clone();
             en.entity_number = curr_ent_n;
             en.position += req;
+
+            pole_map.insert(OrderedDVec2(en.position), curr_ent_n);
             poles.push(en);
             curr_ent_n += 1;
         }
 
-        let mut prev_pole: Option<Entity> = None;
-
         for pole in &poles {
             let pos = pole.position;
-
-            if let Some(prev) = prev_pole {
-                if pos.x - cov == prev.position.x {
-                    wires.push([prev.entity_number, WIRE_C, pole.entity_number, WIRE_C]);
-                }
+            if let Some(&prev) = pole_map.get(&OrderedDVec2(pos + dvec2(-cov, 0.0))) {
+                wires.push([prev, WIRE_C, pole.entity_number, WIRE_C]);
             }
-            {
-                let b = pos - dvec2(0.0, cov);
-                if let Ok(prev) = poles.binary_search_by(|e| {
-                    let a = e.position;
-                    a.y.total_cmp(&b.y).then_with(|| a.x.total_cmp(&b.x))
-                }) {
-                    wires.push([
-                        poles[prev].entity_number,
-                        WIRE_C,
-                        pole.entity_number,
-                        WIRE_C,
-                    ]);
-                }
+            if let Some(&prev) = pole_map.get(&OrderedDVec2(pos + dvec2(0.0, cov))) {
+                wires.push([prev, WIRE_C, pole.entity_number, WIRE_C]);
             }
-
-            prev_pole = Some(pole.clone());
         }
 
         return (poles, wires, curr_ent_n);
