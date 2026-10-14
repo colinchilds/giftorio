@@ -8,12 +8,13 @@ vanilla Factorio version 2.0 and the Space Age DLC.
 
 ## Features
 
-- Converts animated GIFs to Factorio blueprints directly in your browser
-- Automatically downscales GIFs to fit within signal limitations
+- Convert animated GIFs to Factorio blueprints directly in your browser
+- Automatically downscale GIFs to fit within signal limitations
 - Configurable frame rate and image size
-- Configurable substation quality to reduce dead pixels
+- Configurable power pole qualities to reduce dead pixels
 - Attempts to maintain animation timing similar to the original GIF
-- Supports different substation qualities when using the Space Age DLC
+- Supports different power pole qualities when using the Space Age DLC
+- Supports using small and medium power poles as well as substations
 
 ## Additional Features (in 2.0)
 
@@ -161,10 +162,10 @@ The application:
 2. Loads and downscales the input GIF to a manageable size
 3. Converts each frame into a series of circuit network signals
 4. Creates a blueprint containing:
-    - A grid of substations to power the display
-    - Constant combinators to store pixel data
-    - Decider combinators to control frame timing
-    - A grid of lamps to display the image
+   - A grid of substations to power the display
+   - Constant combinators to store pixel data
+   - Decider combinators to control frame timing
+   - A grid of lamps to display the image
 5. Outputs an encoded blueprint string compatible with Factorio
 
 ## Limitations
@@ -172,8 +173,8 @@ The application:
 - Maximum image size is limited by available signals, but more realistically by
   in-game performance.
 - Higher resolution images will require more in-game entities and may impact
-  performance
-- Browser must support WebAssembly
+  performance.
+- Browser must support WebAssembly.
 - Longer GIFs at high resolutions can be very large (5GB+).
 
 ## Contributing

@@ -21,19 +21,20 @@
     "type": "select",
     "options": {
       "substation": {
-        "name": "Substation"
+        "name": "Use the \"substation\" entity to trasmit power."
       },
       "small-electric-pole": {
         "name": "Small",
-        "tooltip": "Small electric pole."
+        "tooltip": "Use the \"small-electric-pole\" entity to trasmit power."
       },
       "medium-electric-pole": {
         "name": "Medium",
-        "tooltip": "Medium electric pole."
+        "tooltip": "Use the \"medium-electric-pole\" entity to trasmit power."
       },
       "big-electric-pole": {
         "name": "Big",
-        "tooltip": "Big electric pole."
+        "tooltip": "Use the \"big-electric-pole\" entity to trasmit power.",
+        "splash": "bruh"
       }
     },
     "tooltip": "The name of the power pole entity to use.",
