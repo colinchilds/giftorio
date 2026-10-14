@@ -21,7 +21,8 @@
     "type": "select",
     "options": {
       "substation": {
-        "name": "Use the \"substation\" entity to trasmit power."
+        "name": "Substation",
+        "tooltip": "Use the \"substation\" entity to trasmit power."
       },
       "small-electric-pole": {
         "name": "Small",
