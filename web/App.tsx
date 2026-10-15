@@ -631,8 +631,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                       ? "Unavailable as the current signal preset does not support quality levels."
                       : ""
                   }
-                  initialValue={formData.substationQuality ?? "<default>"}
-                  onChange={(v) => setFormData("substationQuality", v)}
+                  initialValue={formData.powerPoleQuality ?? "<default>"}
+                  onChange={(v) => setFormData("powerPoleQuality", v as any)}
                 />
               </Show>
               <FormElementsDisplay isStaticImage={isStaticImage()} />
