@@ -1,4 +1,5 @@
-use crate::blueprint::{constants::*, macros::*, models::*, power_pole::*, util::*};
+use crate::blueprint::models::{ComparatorString as CompStr, *};
+use crate::blueprint::{constants::*, macros::*, power_pole::*, util::*};
 use glam::{dvec2, DVec2, IVec2};
 use std::{collections::HashMap, io::Read, sync::Arc};
 use wasm_bindgen::*;
@@ -27,12 +28,20 @@ pub fn generate_combinators(
     start_pos: DVec2,
     max_cols_per_grp: u32,
     args: &BlueprintArgs,
-) -> Result<(Vec<Entity>, Vec<Entity>, Vec<Wire>, (u32, u32, u32)), JsValue> {
+) -> Result<
+    (
+        Vec<BlueprintEntity>,
+        Vec<BlueprintEntity>,
+        Vec<Wire>,
+        (u32, u32, u32),
+    ),
+    JsValue,
+> {
     // Positions for combinators, for different widths.
     // TODO: Don't recalculate this for every group
     let comb_pos_data = load_comb_pos_json(&args.comb_pos_json)?;
     let mut best_pos_data: Option<&CombinatorPositionData> = None;
-    let mut pos_dict: HashMap<String, &Entity> = HashMap::new();
+    let mut pos_dict: HashMap<String, &BlueprintEntity> = HashMap::new();
     let mut base_pos = start_pos;
     let use_compact_layout = max_cols_per_grp < 2;
     let use_delta_comp = args.signal_compression == Some(SignalCompression::Delta);
@@ -77,33 +86,39 @@ pub fn generate_combinators(
 
     // Note: signal compression is auto-disabled if generating a static image
     if use_delta_comp {
-        let mut en = Entity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("delay"));
-        let cb_output = CombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
+        let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("delay"));
+        let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
         let dc = DeciderConditions {
-            conditions: Some(vec![Condition::new(SIG_EACH.clone(), 0, COMP_NE)]),
+            conditions: Some(vec![DeciderCombinatorCondition::new(
+                SIG_EACH.clone(),
+                0,
+                CompStr::Ne,
+            )]),
             outputs: Some(vec![cb_output]),
         };
         en = en.with_tag("delay comb").with_direction(get_dir("delay"));
-        en = en.with_control_behavior(ControlBehavior::from_decider_conditions(dc));
+        en = en.with_control_behavior(ControlBehavior::decider(dc));
         other_ents.push(en.with_description("Utility 1-tick delay combinator."));
         first_connection_ent_n = Some(curr_ent_n);
         curr_ent_n += 1;
 
         let desc = "Memory cell for delta compression. This holds all the signal values, then allows us to set any signal value by applying a delta. We can reach any number in one tick using overflow logic.";
-        let mut en = Entity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("memory"));
-        let cb_output = CombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
+        let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("memory"));
+        let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
         let dc = DeciderConditions {
             conditions: Some(vec![
-                Condition::new(SIG_EACH.clone(), 0, COMP_NE)
-                    .with_first_signal_networks(NetworkFilters::new("g")),
-                Condition::new(args.timing_sigs.t.clone(), 0, COMP_NE)
-                    .with_compare_type(COMP_AND)
-                    .with_first_signal_networks(NetworkFilters::new("r")),
+                DeciderCombinatorCondition::new(SIG_EACH.clone(), 0, CompStr::Ne)
+                    .with_first_signal_networks(CircuitNetworkSelection::new("g")),
+                DeciderCombinatorCondition::new(args.timing_sigs.t.clone(), 0, CompStr::Ne)
+                    .with_compare_type("and")
+                    .with_first_signal_networks(CircuitNetworkSelection::new("r")),
             ]),
-            outputs: Some(vec![cb_output.with_networks(NetworkFilters::new("g"))]),
+            outputs: Some(vec![
+                cb_output.with_networks(CircuitNetworkSelection::new("g"))
+            ]),
         };
         en = en.with_direction(get_dir("memory"));
-        en = en.with_control_behavior(ControlBehavior::from_decider_conditions(dc));
+        en = en.with_control_behavior(ControlBehavior::decider(dc));
         other_ents.push(en.with_tag("memory comb").with_description(desc));
 
         // Self connection for memory
@@ -113,17 +128,17 @@ pub fn generate_combinators(
     }
 
     if gray_bits > 0 {
-        let mut en = Entity::new(curr_ent_n, Arc::clone(&ARI_CB), get_pos(">>"));
+        let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&ARI_CB), get_pos(">>"));
         let desc = "Shifts the input numbers until they are in the range of the current frame.";
-        let ac = ArithmeticConditions {
+        let ac = ArithmeticCombinatorParameters {
             first_signal: Some(SIG_EACH.clone()),
             second_signal: Some(args.timing_sigs.f.clone()),
             second_constant: None,
-            operation: Some(OP_RSHIFT.to_owned()),
+            operation: ArithmeticCombinatorParameterOperation::Shr,
             output_signal: Some(SIG_EACH.clone()),
         };
         en = en.with_tag(">> comb").with_direction(get_dir(">>"));
-        en = en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(ac));
+        en = en.with_control_behavior(ControlBehavior::arithmetic(ac));
         other_ents.push(en.with_description(desc));
 
         if first_connection_ent_n.is_none() {
@@ -131,10 +146,10 @@ pub fn generate_combinators(
         }
         curr_ent_n += 1;
 
-        let mut en = Entity::new(curr_ent_n, Arc::clone(&ARI_CB), get_pos("AND"));
+        let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&ARI_CB), get_pos("AND"));
         let ac = arithmetic_conds!(SIG_EACH AND match gray_bits { 1 => 1, 4 => 15, _ => 255 } => SIG_EACH);
         en = en.with_tag("AND comb").with_direction(get_dir("AND")).with_description("Filters out the bits that are not relevant for the current frame, after bit-shifting. (The value of each signal encodes multiple frames)");
-        other_ents.push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(ac)));
+        other_ents.push(en.with_control_behavior(ControlBehavior::arithmetic(ac)));
         wires.push(mkwires!(R other_ents; OUT ">> comb" => IN "AND comb"));
 
         if use_delta_comp {
@@ -144,12 +159,11 @@ pub fn generate_combinators(
         curr_ent_n += 1;
 
         if gray_bits == 1 || gray_bits == 4 {
-            let mut en = Entity::new(curr_ent_n, Arc::clone(&ARI_CB), get_pos("*"));
+            let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&ARI_CB), get_pos("*"));
             let conds =
                 arithmetic_conds!(SIG_EACH * if gray_bits == 1 { 255 } else { 17 } => SIG_EACH);
             en = en.with_tag("* comb").with_direction(get_dir("*"));
-            other_ents
-                .push(en.with_control_behavior(ControlBehavior::from_arithmetic_conditions(conds)));
+            other_ents.push(en.with_control_behavior(ControlBehavior::arithmetic(conds)));
             wires.push(mkwires!(R other_ents; OUT "AND comb" => IN "* comb"));
             curr_ent_n += 1;
         }
@@ -202,7 +216,7 @@ pub fn generate_combinators(
             }
         }
 
-        let mut en = Entity::new(curr_ent_n, Arc::clone(&target_name), curr_pos);
+        let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&target_name), curr_pos);
         if tick_i == 0 {
             en = en.with_tag("first data comb");
             if use_delta_comp {
@@ -284,7 +298,7 @@ fn load_comb_pos_json(json: &str) -> Result<Vec<CombinatorPositionData>, JsValue
         blueprint: String,
     }
 
-    fn get_bounding_box(en: &Entity) -> Result<std::ops::Range<DVec2>, JsValue> {
+    fn get_bounding_box(en: &BlueprintEntity) -> Result<std::ops::Range<DVec2>, JsValue> {
         let offset = DVec2::from(match en.name.as_ref() {
             name if name == &**ARI_CB || name == &**DEC_CB => match en.direction.unwrap_or(0) {
                 DIR_U | DIR_D => (1.0, 2.0),

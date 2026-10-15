@@ -14,7 +14,7 @@ struct PowerPoleInfoEntry {
 pub struct PowerPoleOccupied {
     bounding_box: DVec2,
     coverage: f64,
-    ref_entity: Entity,
+    ref_entity: BlueprintEntity,
     requests: Vec<DVec2>,
 }
 impl PowerPoleOccupied {
@@ -36,7 +36,8 @@ impl PowerPoleOccupied {
 
         Self {
             bounding_box: entry.bounding_box,
-            ref_entity: Entity::new(0, Arc::from(name), start_pos).with_quality(quality.clone()),
+            ref_entity: BlueprintEntity::new(0, Arc::from(name), start_pos)
+                .with_quality(quality.clone()),
             coverage: quality.map_or(default_cov, |q| *cov.get(&*q).unwrap_or(&default_cov))
                 * args.include_power_poles as i32 as f64,
             requests: Vec::new(),
@@ -59,8 +60,8 @@ impl PowerPoleOccupied {
         &mut self,
         base_ent_n: u32,
         args: &BlueprintArgs,
-    ) -> (Vec<Entity>, Vec<Wire>, u32) {
-        let mut poles: Vec<Entity> = Vec::new();
+    ) -> (Vec<BlueprintEntity>, Vec<Wire>, u32) {
+        let mut poles: Vec<BlueprintEntity> = Vec::new();
         let mut wires: Vec<[u32; 4]> = Vec::new();
         let mut curr_ent_n = base_ent_n;
         let cov = self.coverage;

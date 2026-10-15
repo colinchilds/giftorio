@@ -1,6 +1,6 @@
 use crate::blueprint::{constants::*, models::*, power_pole::*};
 use glam::{dvec2, DVec2, UVec2};
-use std::sync::Arc;
+use std::{ops::Not, sync::Arc};
 
 /// Generates a grid of lamp entities for the blueprint.
 ///
@@ -18,14 +18,19 @@ use std::sync::Arc;
 ///
 /// A tuple with lamp entities, lamp wires, the next entity number, and the top-right lamp entity.
 pub fn generate_lamps(
-    signals: &[Arc<Signal>],
+    signals: &[Arc<SignalID>],
     grid_dim: UVec2,
     curr_frame: Option<image::DynamicImage>,
     occupied: &mut PowerPoleOccupied,
     base_ent_n: u32,
     start_pos: DVec2,
     args: &BlueprintArgs,
-) -> (Vec<Entity>, Vec<Wire>, u32, (Option<u32>, Option<u32>)) {
+) -> (
+    Vec<BlueprintEntity>,
+    Vec<Wire>,
+    u32,
+    (Option<u32>, Option<u32>),
+) {
     use crate::blueprint::models::ImageRotation::*;
 
     let mut ents = Vec::new();
@@ -53,7 +58,8 @@ pub fn generate_lamps(
                 continue;
             }
             let curr_ent_n = get_ent_num(r as u32, c as u32);
-            let mut lamp = Entity::new(curr_ent_n, Arc::clone(&LAMP), pos).with_always_on(true);
+            let mut lamp =
+                BlueprintEntity::new(curr_ent_n, Arc::clone(&LAMP), pos).with_always_on(true);
             let index = r * grid_dim.x as usize + c;
 
             if top_right_ent_n.is_none() {
@@ -63,30 +69,23 @@ pub fn generate_lamps(
             if matches!(args.mode, Mode::Static { combs: false, .. }) {
                 let frame = curr_frame.as_ref();
                 let frame = frame.expect("StaticImage without combintors requires a frame");
-                let pixel = frame.get_pixel(c as u32, r as u32);
+                let p = frame.get_pixel(c as u32, r as u32);
 
                 lamp = lamp.with_color(Color {
-                    r: pixel[0] as f64 / 255.0,
-                    g: pixel[1] as f64 / 255.0,
-                    b: pixel[2] as f64 / 255.0,
-                    a: pixel[3] as f64 / 255.0,
+                    r: p[0] as f64 / 255.0,
+                    g: p[1] as f64 / 255.0,
+                    b: p[2] as f64 / 255.0,
+                    a: p[3] as f64 / 255.0,
                 });
             } else {
-                let signal = Arc::clone(&signals[index]);
-                lamp = lamp.with_control_behavior(if args.grayscale_bits > 0 {
-                    ControlBehavior::GrayLamp {
-                        use_colors: true,
-                        color_mode: 1,
-                        red_signal: Arc::clone(&signal),
-                        green_signal: Arc::clone(&signal),
-                        blue_signal: Arc::clone(&signal),
-                    }
-                } else {
-                    ControlBehavior::ColorLamp {
-                        use_colors: true,
-                        color_mode: 2,
-                        rgb_signal: signal,
-                    }
+                let sig = Arc::clone(&signals[index]);
+                lamp = lamp.with_control_behavior(ControlBehavior::LampBlueprintControlBehavior {
+                    use_colors: true,
+                    color_mode: if args.grayscale_bits > 0 { 1 } else { 2 },
+                    red_signal: (args.grayscale_bits > 0).then(|| Arc::clone(&sig)),
+                    green_signal: (args.grayscale_bits > 0).then(|| Arc::clone(&sig)),
+                    blue_signal: (args.grayscale_bits > 0).then(|| Arc::clone(&sig)),
+                    rgb_signal: (args.grayscale_bits > 0).not().then(|| Arc::clone(&sig)),
                 });
             }
 

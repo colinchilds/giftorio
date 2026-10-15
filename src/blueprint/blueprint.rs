@@ -1,5 +1,6 @@
+use crate::blueprint::models::{ComparatorString as CompStr, *};
 use crate::blueprint::{
-    combinator::*, constants::*, lamp::*, models::*, power_pole::*, signals::*, timer::*, util::*,
+    combinator::*, constants::*, lamp::*, power_pole::*, signals::*, timer::*, util::*,
 };
 use crate::image_processing::FrameData;
 use crate::progress::set_progress;
@@ -14,16 +15,29 @@ const ENCODE_CHUNK_SIZE: usize = 100;
 /// we can batch more wires together for better speed.
 const WIRE_ENCODE_CHUNK_SIZE: usize = 5000;
 
+/// Data for blueprint generation.
 pub struct BlueprintGenerator<'a> {
+    /// Copy of the parsed arguments passed in from JS.
     args: &'a BlueprintArgs,
+    /// Stores entities, wires, and next entity number.
     entity_data: EntityData,
+    /// Stores the iterator that generates the next frame, for streaming output.
+    /// May be None if only generating the lamp grid.
     frame_info: Option<FrameInfo<'a>>,
+    /// Target dimensions of the image or video.
     dim: UVec2,
+    /// Maximum number of lamp columns per group. Groups are always divided split vertically.
     max_cols_per_grp: u32,
+    /// Total number of groups to generate. Each group is a vertical split of the lamps, with no data
+    /// connections. Timing wires still connect each group.
     n_groups: u32,
+    /// Keeps track of positions currently occupied by power poles, and used to request powerage for
+    /// generated entities.
     occupied: PowerPoleOccupied,
+    /// Whether to generate any combinators or not.
     should_generate_cbs: bool,
-    signals: Vec<Arc<Signal>>,
+    /// List of unique signals to use for the blueprint.
+    signals: Box<[Arc<SignalID>]>,
     state: BlueprintState,
 }
 
@@ -32,7 +46,7 @@ struct FrameInfo<'a> {
     curr_frame: image::DynamicImage,
     frame_data: FrameData<'a>,
     frames_per_cb: u32,
-    group_data_combs: Vec<Vec<Entity>>,
+    group_data_combs: Vec<Vec<BlueprintEntity>>,
     n_buf_frames: u32,
     n_scaled_frames: u32,
     next_frame: Option<image::DynamicImage>,
@@ -51,7 +65,7 @@ enum BlueprintState {
 }
 
 struct EntityData {
-    ents: Vec<Entity>,
+    ents: Vec<BlueprintEntity>,
     wires: Vec<Wire>,
     next_ent_n: u32,
 }
@@ -64,7 +78,7 @@ struct GroupPatchState {
 
 impl<'a> BlueprintGenerator<'a> {
     pub fn new(data: Option<FrameData<'a>>, args: &'a BlueprintArgs) -> Result<Self, JsValue> {
-        let signals: Vec<Arc<Signal>> = Self::get_signal_data(&args);
+        let signals = Self::get_signal_data(&args);
         let gray_bits = args.grayscale_bits;
         let comb_comp = args.signal_compression;
         let time_comp_win = match comb_comp {
@@ -148,7 +162,7 @@ impl<'a> BlueprintGenerator<'a> {
     }
 
     /// Calculates the required position for the given entity to counteract the rotation of the image.
-    fn transform_entity(args: &BlueprintArgs, en: &mut Entity) {
+    fn transform_entity(args: &BlueprintArgs, en: &mut BlueprintEntity) {
         let mut pos = en.position;
         pos = match args.flipped_axes {
             FlippedAxes::X => dvec2(-pos.x, pos.y),
@@ -182,15 +196,22 @@ impl<'a> BlueprintGenerator<'a> {
         });
     }
 
-    fn get_signal_data(args: &BlueprintArgs) -> Vec<Arc<Signal>> {
-        let blacklist_signals = [
-            Arc::from(args.timing_sigs.f.clone()),
-            Arc::from(args.timing_sigs.s.clone()),
-            Arc::from(args.timing_sigs.t.clone()),
-        ];
-        let mut signals = SIGNALS.with_borrow(|data| {
-            let filtered = data.iter().filter(|&v| !blacklist_signals.contains(v));
-            filtered.cloned().collect::<Vec<_>>()
+    fn get_signal_data(args: &BlueprintArgs) -> Box<[Arc<SignalID>]> {
+        let mut signals = SIGNAL_DATA.with_borrow(|v| {
+            let signals = &v.as_ref().expect("No signal data loaded yet!").signals;
+            if matches!(
+                args.mode,
+                Mode::LampGrid | Mode::Lamps | Mode::Static { timer: false, .. }
+            ) {
+                return signals.clone();
+            }
+            let blacklist_sigs = [
+                Arc::from(args.timing_sigs.f.clone()),
+                Arc::from(args.timing_sigs.s.clone()),
+                Arc::from(args.timing_sigs.t.clone()),
+            ]; // Disallow timing signals from being used
+            let filtered = signals.iter().filter(|&v| !blacklist_sigs.contains(v));
+            return filtered.cloned().collect::<Box<_>>();
         });
         match args.signal_sorting {
             // Only sort by name (compressor really likes this)
@@ -214,43 +235,11 @@ impl<'a> BlueprintGenerator<'a> {
         self.state == BlueprintState::Finished
     }
 
-    pub fn next_chunk(&mut self, mut writer: &mut dyn io::Write) -> Result<bool, JsValue> {
+    pub fn next_chunk(&mut self, writer: &mut dyn io::Write) -> Result<bool, JsValue> {
         let old_state = self.state.clone();
         match old_state {
             BlueprintState::Start => {
-                write_to(&mut writer, b"{\"blueprint\":{")?;
-
-                // let mut attributes: Vec<String> = Vec::new();
-
-                // // Generate attributes
-                // if self.args.use_dlc {
-                //     attributes.push("[space-age]".to_owned());
-                // }
-                // if self.args.image_rotation != ImageRotation::Deg0 {
-                //     let (sig, rotation) = match self.args.image_rotation {
-                //         ImageRotation::Deg0 => ("signal-clockwise-circle-arrow", "0°"),
-                //         ImageRotation::Deg90 => ("signal-clockwise-circle-arrow", "90°"),
-                //         ImageRotation::Deg180 => ("signal-clockwise-circle-arrow", "180°"),
-                //         ImageRotation::Deg270 => ("signal-anticlockwise-circle-arrow", "90°"),
-                //     };
-                //     attributes.push(format!("[virtual-signal={sig}] {rotation}"));
-                // }
-                // if self.args.prefer_green_wires {
-                //     attributes.push("[item=green-wire]".to_owned());
-                // } else {
-                //     attributes.push("[item=red-wire]".to_owned());
-                // }
-                // if let Some(q) = self.args.substation_quality.clone() {
-                //     attributes.push(format!("[item=copper-wire,quality={q}]"));
-                // }
-                // if self.args.flipped_axes != FlippedAxes::None {
-                //     attributes.push(match self.args.flipped_axes {
-                // 		FlippedAxes::X => "[virtual-signal=signal-left-right-arrow]",
-                // 		FlippedAxes::Y => "[virtual-signal=signal-up-down-arrow]",
-                // 		FlippedAxes::Both => "[virtual-signal=signal-left-right-arrow] [virtual-signal=signal-up-down-arrow]",
-                // 		_ => unreachable!(),
-                // 	}.to_owned());
-                // }
+                write_to(writer, b"{\"blueprint\":{")?;
 
                 let bp_color = match self.args.grayscale_bits {
                     0 => "#8888ff",
@@ -261,7 +250,7 @@ impl<'a> BlueprintGenerator<'a> {
                 let bp = BlueprintInner {
                     description: None,
                     icons: Some(vec![Icon {
-                        signal: Signal {
+                        signal: SignalID {
                             type_: Arc::from("item"),
                             name: Arc::clone(&LAMP),
                             quality: None,
@@ -281,7 +270,7 @@ impl<'a> BlueprintGenerator<'a> {
                     wires: Some(Vec::new()), // don't serialize
                 };
 
-                write_json_trimmed_to(&mut writer, &bp)?;
+                write_json_trimmed_to(writer, &bp)?;
                 self.state = BlueprintState::Entities;
             }
             BlueprintState::Entities => self.place_entities(writer)?,
@@ -299,7 +288,7 @@ impl<'a> BlueprintGenerator<'a> {
         // Properly delimit the JSON stream before the next chunks
         if old_state != self.state {
             match self.state {
-                BlueprintState::Entities => write_to(&mut writer, b",\"entities\":[")?,
+                BlueprintState::Entities => write_to(writer, b",\"entities\":[")?,
                 BlueprintState::Wires => {
                     // Set description of constant combinator
                     if let Some(incrementer) = self.entity_data.ents.get(0) {
@@ -324,18 +313,18 @@ impl<'a> BlueprintGenerator<'a> {
 
                     // Write remaining entities. Data combinators were NOT included in self.entity_data.ents
                     for ents in self.entity_data.ents.chunks(ENCODE_CHUNK_SIZE) {
-                        write_to(&mut writer, b",").unwrap_throw();
-                        write_json_trimmed_to(&mut writer, &ents).unwrap_throw();
+                        write_to(writer, b",").unwrap_throw();
+                        write_json_trimmed_to(writer, &ents).unwrap_throw();
                     }
 
-                    write_to(&mut writer, b"],\"wires\":[")?;
+                    write_to(writer, b"],\"wires\":[")?;
                 }
                 BlueprintState::Finished => {
-                    write_to(&mut writer, b"]")?;
-                    write_to(&mut writer, b",\"description\":\"")?;
-                    write_json_trimmed_to(&mut writer, &self.get_description())?;
-                    write_to(&mut writer, b"\"")?;
-                    write_to(&mut writer, b"}}")?;
+                    write_to(writer, b"]")?;
+                    write_to(writer, b",\"description\":\"")?;
+                    write_json_trimmed_to(writer, &self.get_description())?;
+                    write_to(writer, b"\"")?;
+                    write_to(writer, b"}}")?;
                 }
                 _ => {}
             }
@@ -396,7 +385,7 @@ impl<'a> BlueprintGenerator<'a> {
         return output.join("");
     }
 
-    fn place_entities(&mut self, mut writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    fn place_entities(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let args = self.args;
         let info = &mut self.frame_info;
         let signals = &mut self.signals;
@@ -496,14 +485,14 @@ impl<'a> BlueprintGenerator<'a> {
                 self.occupied.request(lamp.position); // Request powerage for lamps
             }
             if group_i > 0 {
-                write_to(&mut writer, b",")?;
+                write_to(writer, b",")?;
             }
 
             for en in grp_lamps.iter_mut() {
                 Self::transform_entity(&self.args, en);
             }
 
-            write_json_trimmed_to(&mut writer, &grp_lamps)?;
+            write_json_trimmed_to(writer, &grp_lamps)?;
             ent_data.wires.extend(grp_lamp_wires);
         }
 
@@ -513,7 +502,7 @@ impl<'a> BlueprintGenerator<'a> {
         Ok(())
     }
 
-    fn populate_data(&mut self, mut writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    fn populate_data(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let info = self.frame_info.as_mut().unwrap();
 
         let group_data_combs = &mut info.group_data_combs;
@@ -531,36 +520,36 @@ impl<'a> BlueprintGenerator<'a> {
         let mode = self.args.mode;
         let sig_t = self.args.timing_sigs.t.clone();
 
-        let mk_cb = |start: u32, end: u32, outputs: Vec<CombinatorOutput>| {
+        let mk_cb = |start: u32, end: u32, outputs: Vec<DeciderCombinatorOutput>| {
             if matches!(mode, Mode::Static { const_cb: true, .. }) {
                 let filters = outputs.iter().enumerate().map(|(i, o)| {
                     let sig = o.signal.as_ref().unwrap();
-                    Filter {
-                        index: i as u32 + 1,
+                    BlueprintLogisticFilter {
+                        index: i as u16 + 1,
                         type_: Arc::clone(&sig.type_),
                         name: Arc::clone(&sig.name),
                         quality: sig.quality.clone(),
-                        comparator: Some(COMP_EQ.to_owned()),
-                        count: o.constant,
+                        comparator: Some(ComparatorString::Eq),
+                        count: o.constant.unwrap(),
                     }
                 });
                 let filters = filters.collect();
-                let sections = Sections {
-                    sections: vec![Section { index: 1, filters }],
+                let sections = BlueprintLogisticSections {
+                    sections: vec![LogisticSection { index: 1, filters }],
                 };
-                ControlBehavior::Constant { sections }
+                ControlBehavior::ConstantCombinatorBlueprintControlBehavior { sections }
             } else {
-                ControlBehavior::from_decider_conditions(DeciderConditions {
+                ControlBehavior::decider(DeciderConditions {
                     conditions: Some(vec![
-                        Condition::new(sig_t.clone(), start as i32, COMP_GE),
-                        Condition::new(sig_t.clone(), end as i32, COMP_LT)
-                            .with_compare_type(COMP_AND),
+                        DeciderCombinatorCondition::new(sig_t.clone(), start as i32, CompStr::Ge),
+                        DeciderCombinatorCondition::new(sig_t.clone(), end as i32, CompStr::Lt)
+                            .with_compare_type("and"),
                     ]),
                     outputs: Some(outputs),
                 })
             }
         };
-        let mut output_ents: Vec<Entity> = Vec::with_capacity(ENCODE_CHUNK_SIZE);
+        let mut output_ents: Vec<BlueprintEntity> = Vec::with_capacity(ENCODE_CHUNK_SIZE);
 
         loop {
             info.next_frame = frame_data.next().transpose()?;
@@ -624,7 +613,7 @@ impl<'a> BlueprintGenerator<'a> {
                         let v = frame_sigs[i].wrapping_sub(prev_outputs[i]); // Uses overflow to reach any target value.
                         if v != 0 {
                             let signal = Arc::clone(&signals[i]);
-                            target_outputs.push(CombinatorOutput::new(signal, Some(v)));
+                            target_outputs.push(DeciderCombinatorOutput::new(signal, Some(v)));
                         }
                     }
                     if target_outputs.len() > 0 {
@@ -665,7 +654,7 @@ impl<'a> BlueprintGenerator<'a> {
                         for (i, &v) in cb_outputs.iter().enumerate() {
                             if changed_mask[i] && v != 0 {
                                 let signal = Arc::clone(&signals[i]);
-                                target_outputs.push(CombinatorOutput::new(signal, Some(v)));
+                                target_outputs.push(DeciderCombinatorOutput::new(signal, Some(v)));
                             }
                         }
                         if target_outputs.len() > 0 {
@@ -683,7 +672,8 @@ impl<'a> BlueprintGenerator<'a> {
                         for i in 0..target_outputs_len {
                             if !changed_mask[i] && outputs_0[i] != 0 {
                                 let sig = Arc::clone(&signals[i]);
-                                target_outputs.push(CombinatorOutput::new(sig, Some(outputs_0[i])));
+                                target_outputs
+                                    .push(DeciderCombinatorOutput::new(sig, Some(outputs_0[i])));
                             }
                         }
                         if target_outputs.len() > 0 {
@@ -717,14 +707,14 @@ impl<'a> BlueprintGenerator<'a> {
                 self.occupied.request(en.position); // Request powerage for generated combinators
                 Self::transform_entity(&self.args, en);
             }
-            write_to(&mut writer, b",")?;
-            write_json_trimmed_to(&mut writer, &output_ents)?; // Remove braces
+            write_to(writer, b",")?;
+            write_json_trimmed_to(writer, &output_ents)?; // Remove braces
         }
 
         Ok(())
     }
 
-    fn make_wires(&mut self, mut writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    fn make_wires(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let all_ents = &mut self.entity_data.ents;
         let all_wires = &mut self.entity_data.wires;
         let n_wires = all_wires.len();
@@ -743,9 +733,9 @@ impl<'a> BlueprintGenerator<'a> {
                 &format!("Generating wires ({display_i} / {n_wires})..."),
             );
             if i > 0 {
-                write_to(&mut writer, b",")?;
+                write_to(writer, b",")?;
             }
-            write_json_trimmed_to(&mut writer, wires)?;
+            write_json_trimmed_to(writer, wires)?;
         }
         self.state = BlueprintState::Finished;
 

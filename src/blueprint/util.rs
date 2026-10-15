@@ -13,7 +13,7 @@ where
     write_to(writer, &json_bytes[1..json_bytes.len() - 1]) // Remove braces
 }
 
-pub fn invert_wires(ents: &mut Vec<Entity>, wires: &mut Vec<Wire>) {
+pub fn invert_wires(ents: &mut Vec<BlueprintEntity>, wires: &mut Vec<Wire>) {
     #[inline(always)]
     fn get_swap(wire_id: u32) -> u32 {
         match wire_id {
@@ -25,7 +25,7 @@ pub fn invert_wires(ents: &mut Vec<Entity>, wires: &mut Vec<Wire>) {
         }
     }
     for e in ents.iter_mut() {
-        if let Some(ControlBehavior::Decider { decider_conditions }) = e.control_behavior.as_mut() {
+        if let Some(ControlBehavior::DeciderCombinatorBlueprintControlBehavior { decider_conditions }) = e.control_behavior.as_mut() {
             decider_conditions.swap_networks();
         }
     }
@@ -216,4 +216,14 @@ pub fn format_duration(ms: u32) -> String {
     let milliseconds = ms % 1000;
 
     return format!("{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}");
+}
+
+/// Checks if the value is the default value for the type.
+pub fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    value == &T::default()
+}
+
+/// Checks if an Option is None or the default value for the type.
+pub fn is_none_or_default<T: Default + PartialEq>(value: &Option<T>) -> bool {
+    value.as_ref().is_none_or(|v| v == &T::default())
 }

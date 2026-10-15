@@ -1,10 +1,10 @@
 macro_rules! arithmetic_conds {
     ($in_sig:ident $op:tt $second:expr => $out_sig:ident) => {
-        ArithmeticConditions {
+        ArithmeticCombinatorParameters {
             first_signal: Some($in_sig.clone()),
             second_signal: None,
             second_constant: Some($second as i32),
-            operation: Some($crate::blueprint::macros::arithmetic_combinator_op!($op).to_owned()),
+            operation: $crate::blueprint::macros::arithmetic_combinator_op!($op),
             output_signal: Some($out_sig.clone()),
         }
     };
@@ -12,37 +12,37 @@ macro_rules! arithmetic_conds {
 
 macro_rules! arithmetic_combinator_op {
     (*) => {
-        OP_MUL
+        ArithmeticCombinatorParameterOperation::Mul
     };
     (/) => {
-        OP_DIV
+        ArithmeticCombinatorParameterOperation::Div
     };
     (+) => {
-        OP_ADD
+        ArithmeticCombinatorParameterOperation::Add
     };
     (-) => {
-        OP_SUB
+        ArithmeticCombinatorParameterOperation::Sub
     };
     (%) => {
-        OP_MOD
+        ArithmeticCombinatorParameterOperation::Mod
     };
     (^) => {
-        OP_POW
+        ArithmeticCombinatorParameterOperation::Pow
     };
     (<<) => {
-        OP_LSHIFT
+        ArithmeticCombinatorParameterOperation::Shl
     };
     (>>) => {
-        OP_RSHIFT
+        ArithmeticCombinatorParameterOperation::Shr
     };
     (AND) => {
-        OP_AND
+        ArithmeticCombinatorParameterOperation::And
     };
     (OR) => {
-        OP_OR
+        ArithmeticCombinatorParameterOperation::Or
     };
     (XOR) => {
-        OP_XOR
+        ArithmeticCombinatorParameterOperation::Xor
     };
 }
 
