@@ -88,13 +88,13 @@ pub fn generate_combinators(
     if use_delta_comp {
         let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("delay"));
         let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
-        let dc = DeciderConditions {
-            conditions: Some(vec![DeciderCombinatorCondition::new(
+        let dc = DeciderCombinatorParameters {
+            conditions: vec![DeciderCombinatorCondition::new(
                 SIG_EACH.clone(),
                 0,
                 CompStr::Ne,
-            )]),
-            outputs: Some(vec![cb_output]),
+            )],
+            outputs: vec![cb_output],
         };
         en = en.with_tag("delay comb").with_direction(get_dir("delay"));
         en = en.with_control_behavior(ControlBehavior::decider(dc));
@@ -105,17 +105,15 @@ pub fn generate_combinators(
         let desc = "Memory cell for delta compression. This holds all the signal values, then allows us to set any signal value by applying a delta. We can reach any number in one tick using overflow logic.";
         let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("memory"));
         let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
-        let dc = DeciderConditions {
-            conditions: Some(vec![
+        let dc = DeciderCombinatorParameters {
+            conditions: vec![
                 DeciderCombinatorCondition::new(SIG_EACH.clone(), 0, CompStr::Ne)
-                    .with_first_signal_networks(CircuitNetworkSelection::new("g")),
+                    .with_first_signal_networks(CircuitNetworkSelection::green()),
                 DeciderCombinatorCondition::new(args.timing_sigs.t.clone(), 0, CompStr::Ne)
-                    .with_compare_type("and")
-                    .with_first_signal_networks(CircuitNetworkSelection::new("r")),
-            ]),
-            outputs: Some(vec![
-                cb_output.with_networks(CircuitNetworkSelection::new("g"))
-            ]),
+                    .with_compare_type(CompareTypeString::And)
+                    .with_first_signal_networks(CircuitNetworkSelection::red()),
+            ],
+            outputs: vec![cb_output.with_networks(CircuitNetworkSelection::green())],
         };
         en = en.with_direction(get_dir("memory"));
         en = en.with_control_behavior(ControlBehavior::decider(dc));
@@ -133,7 +131,7 @@ pub fn generate_combinators(
         let ac = ArithmeticCombinatorParameters {
             first_signal: Some(SIG_EACH.clone()),
             second_signal: Some(args.timing_sigs.f.clone()),
-            second_constant: None,
+            second_constant: 0,
             operation: ArithmeticCombinatorParameterOperation::Shr,
             output_signal: Some(SIG_EACH.clone()),
         };
@@ -178,11 +176,11 @@ pub fn generate_combinators(
         entity_idx_by_tag!(other_ents, "memory comb").unwrap_or((curr_ent_n - 1).max(base_ent_n))
     };
     let cb_midpoint = if use_const_cbs {
-        dvec2(0.5, -0.5)
+        const { dvec2(0.5, -0.5) }
     } else if use_compact_layout {
-        dvec2(0.5, -1.0) // Base position for vertical layout
+        const { dvec2(0.5, -1.0) } // Base position for vertical layout
     } else {
-        dvec2(1.0, -0.5) // Base position for horizontal layout
+        const { dvec2(1.0, -0.5) } // Base position for horizontal layout
     };
     let mut offset: DVec2;
     let mut curr_pos: DVec2;

@@ -3,7 +3,7 @@ macro_rules! arithmetic_conds {
         ArithmeticCombinatorParameters {
             first_signal: Some($in_sig.clone()),
             second_signal: None,
-            second_constant: Some($second as i32),
+            second_constant: $second as i32,
             operation: $crate::blueprint::macros::arithmetic_combinator_op!($op),
             output_signal: Some($out_sig.clone()),
         }

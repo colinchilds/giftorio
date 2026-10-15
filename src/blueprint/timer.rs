@@ -1,4 +1,5 @@
-use crate::blueprint::{constants::*, macros::*, models::*};
+use crate::blueprint::models::{ComparatorString as CompStr, *};
+use crate::blueprint::{constants::*, macros::*};
 use std::sync::Arc;
 
 /// Generates timer entities and wires for the blueprint's timing mechanism.
@@ -29,7 +30,7 @@ pub fn generate_timer(
     let mut wires: Vec<Wire> = Vec::new();
     let mut en =
         BlueprintEntity::new(1, Arc::clone(&CONSTANT_COMB), TIMER1_POS).with_direction(DIR_R);
-    let sections = BlueprintLogisticSections {
+    let sections = LogisticSections {
         sections: vec![LogisticSection {
             index: 1,
             filters: vec![BlueprintLogisticFilter {
@@ -37,7 +38,7 @@ pub fn generate_timer(
                 type_: sig_t.type_.clone(),
                 name: sig_t.name.clone(),
                 quality: sig_t.quality.clone(),
-                comparator: Some(ComparatorString::Eq),
+                comparator: Some(CompStr::Eq),
                 count: 1,
             }],
         }],
@@ -48,16 +49,10 @@ pub fn generate_timer(
     ents.push(en.with_tag("incrementer"));
 
     let mut en = BlueprintEntity::new(2, Arc::clone(&DEC_CB), TIMER2_POS).with_direction(DIR_R);
-    let decider_conditions = DeciderConditions {
-        conditions: Some(vec![DeciderCombinatorCondition::new(
-            sig_t.clone(),
-            stop as i32,
-            ComparatorString::Lt,
-        )]),
-        outputs: Some(vec![DeciderCombinatorOutput::new(
-            Arc::from(sig_t.clone()),
-            None,
-        )]),
+    let condition = DeciderCombinatorCondition::new(sig_t.clone(), stop as i32, CompStr::Lt);
+    let decider_conditions = DeciderCombinatorParameters {
+        conditions: vec![condition],
+        outputs: vec![DeciderCombinatorOutput::new(Arc::from(sig_t.clone()), None)],
     };
     en = en.with_tag("base_timer").with_description("[virtual-signal=signal-T] increments 60 times per second up to the GIF's frame count, then resets to 0. It determines the current frame.");
     ents.push(en.with_control_behavior(

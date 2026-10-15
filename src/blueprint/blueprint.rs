@@ -215,7 +215,9 @@ impl<'a> BlueprintGenerator<'a> {
         });
         match args.signal_sorting {
             // Only sort by name (compressor really likes this)
-            SignalSorting::Compression => signals.sort_by(|a, b| a.name.cmp(&b.name)),
+            SignalSorting::Compression => {
+                signals.sort_by(|a, b| a.type_.cmp(&b.type_).then_with(|| a.name.cmp(&b.name)))
+            }
             // Sort by total length of the type + name + quality (actual smallest JSON)
             SignalSorting::Json => signals.sort_by_key(|s| {
                 s.quality.as_ref().map_or(0, |q| match q.as_ref() {
@@ -522,30 +524,30 @@ impl<'a> BlueprintGenerator<'a> {
 
         let mk_cb = |start: u32, end: u32, outputs: Vec<DeciderCombinatorOutput>| {
             if matches!(mode, Mode::Static { const_cb: true, .. }) {
-                let filters = outputs.iter().enumerate().map(|(i, o)| {
-                    let sig = o.signal.as_ref().unwrap();
-                    BlueprintLogisticFilter {
+                let filters = outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| BlueprintLogisticFilter {
                         index: i as u16 + 1,
-                        type_: Arc::clone(&sig.type_),
-                        name: Arc::clone(&sig.name),
-                        quality: sig.quality.clone(),
+                        type_: Arc::clone(&o.signal.type_),
+                        name: Arc::clone(&o.signal.name),
+                        quality: o.signal.quality.clone(),
                         comparator: Some(ComparatorString::Eq),
-                        count: o.constant.unwrap(),
-                    }
-                });
+                        count: o.constant,
+                    });
                 let filters = filters.collect();
-                let sections = BlueprintLogisticSections {
+                let sections = LogisticSections {
                     sections: vec![LogisticSection { index: 1, filters }],
                 };
                 ControlBehavior::ConstantCombinatorBlueprintControlBehavior { sections }
             } else {
-                ControlBehavior::decider(DeciderConditions {
-                    conditions: Some(vec![
+                ControlBehavior::decider(DeciderCombinatorParameters {
+                    conditions: vec![
                         DeciderCombinatorCondition::new(sig_t.clone(), start as i32, CompStr::Ge),
                         DeciderCombinatorCondition::new(sig_t.clone(), end as i32, CompStr::Lt)
-                            .with_compare_type("and"),
-                    ]),
-                    outputs: Some(outputs),
+                            .with_compare_type(CompareTypeString::And),
+                    ],
+                    outputs,
                 })
             }
         };

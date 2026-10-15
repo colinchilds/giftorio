@@ -25,7 +25,10 @@ pub fn invert_wires(ents: &mut Vec<BlueprintEntity>, wires: &mut Vec<Wire>) {
         }
     }
     for e in ents.iter_mut() {
-        if let Some(ControlBehavior::DeciderCombinatorBlueprintControlBehavior { decider_conditions }) = e.control_behavior.as_mut() {
+        if let Some(ControlBehavior::DeciderCombinatorBlueprintControlBehavior {
+            decider_conditions,
+        }) = e.control_behavior.as_mut()
+        {
             decider_conditions.swap_networks();
         }
     }
@@ -182,13 +185,6 @@ impl<T, E: std::fmt::Display> ResultJsExt<T, E> for Result<T, E> {
     fn map_js_err(self, prefix: &str) -> Result<T, JsValue> {
         self.map_err(|e| JsValue::from_str(&format!("{prefix}: {e}")))
     }
-}
-
-pub fn is_none_or_empty_string(value: &Option<String>) -> bool {
-    value.as_ref().is_none_or(|v| v.is_empty())
-}
-pub fn is_none_or_empty_vec<T>(value: &Option<Vec<T>>) -> bool {
-    value.as_ref().is_none_or(|v| v.is_empty())
 }
 
 #[derive(serde::Deserialize)]
