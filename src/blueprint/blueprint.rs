@@ -396,10 +396,14 @@ impl<'a> BlueprintGenerator<'a> {
         if self.should_generate_cbs && !matches!(args.mode, Mode::Static { timer: false, .. }) {
             let info = info.as_mut().unwrap();
             let stop = info.frame_data.total_frames() * info.ticks_per_frame;
-            let (ents, wires) =
+            let (mut ents, wires) =
                 generate_timer(stop, info.ticks_per_frame, info.frames_per_cb, &args);
             ent_data.next_ent_n = ents.iter().map(|e| e.entity_number).max().unwrap_or(0);
             ent_data.next_ent_n += 1;
+
+            for en in ents.iter_mut() {
+                en.position.y -= args.lamp_margin_y as f64;
+            }
 
             ent_data.ents.extend(ents);
             ent_data.wires.extend(wires);

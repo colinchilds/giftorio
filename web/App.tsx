@@ -11,7 +11,7 @@ import Tooltip from "@/components/Tooltip";
 import { FORM_ELEMENTS, getInitialValues, LAST_FILE_KEY, setInitialValues, SHOW_ADVANCED_KEY, SignalPreset } from "@/data";
 import { loadFileDB, saveFileDB } from "@/db";
 import { FormElementValue } from "@/types";
-import { formatDuration, formatFileSize, useErrM } from "@/utils";
+import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM } from "@/utils";
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
@@ -620,7 +620,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                   options={
                     signalPreset()!.qualities.length
                       ? [
-                          ["<default>", { name: "<Default>", tooltip: `Alias for "${signalPreset()!.qualities[0]}"` }],
+                          ["<default>", { name: "(Default)", tooltip: `Alias for "${signalPreset()!.qualities[0]}"` }],
                           ...signalPreset()!.qualities.map((q) => {
                             const poleData = signalPreset()!.electric_poles;
                             const targetName = formData.powerPoleName;
@@ -629,28 +629,36 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                             ).supply_area_distances.find((v) => v.quality === q)!;
 
                             const tooltip = `${dist * 2}x${dist * 2} Supply area`;
-                            return [q, { name: q, tooltip }] as const;
+                            return [q, { name: kebabCaseToSentenceCase(q), tooltip }] as const;
                           }),
                         ]
                       : []
                   }
                   tooltip="The quality level of the power poles."
-                  splash={signalPreset()!.qualities.length === 0 ? "Irrelevant for the current signal preset." : ""}
+                  splash={
+                    signalPreset()!.qualities.length === 0
+                      ? "Irrelevant for the current signal preset."
+                      : `Above values are for the ${kebabCaseToSentenceCase(formData.powerPoleName)}.`
+                  }
                   initialValue={formData.powerPoleQuality ?? "<default>"}
                   onChange={(v) => setFormData("powerPoleQuality", v as any)}
                 />
                 <FactorioSelect
-                  name="Pole Entity"
+                  name="Pole Type"
                   key="powerPoleName"
                   disabled={!formData.includePowerPoles}
                   options={signalPreset()!.electric_poles.map(({ name, supply_area_distances: dists, ...p }) => {
                     const targetQual = formData.powerPoleQuality;
                     const dist = (dists.find((d) => !targetQual || d.quality === targetQual) ?? dists[0])?.supply_area_distance;
                     const tooltip = `${dist * 2}x${dist * 2} Supply area, ${p.tile_width}x${p.tile_height} Footprint`;
-                    return [name, { name, tooltip }] as const;
+                    return [name, { name: kebabCaseToSentenceCase(name), tooltip }] as const;
                   })}
                   tooltip="The name of the electric pole entity to use to power the blueprint."
-                  splash={signalPreset()!.electric_poles.length === 0 ? "Irrelevant for current signal preset." : ""}
+                  splash={
+                    signalPreset()!.electric_poles.length === 0
+                      ? "Irrelevant for current signal preset."
+                      : `Above values are for the "${kebabCaseToSentenceCase(formData.powerPoleQuality!)}" quality.`
+                  }
                   initialValue={formData.powerPoleName}
                   onChange={(v) => setFormData("powerPoleName", v as any)}
                 />

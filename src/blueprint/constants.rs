@@ -5,12 +5,12 @@ use glam::{DVec2, dvec2};
 use crate::macros::lazy_const;
 
 /// Timer entity positions.
-pub const TIMER1_POS: DVec2 = dvec2(-2.5, -3.0);
-pub const TIMER2_POS: DVec2 = dvec2(-1.0, -3.0);
-pub const TIMER3_POS: DVec2 = dvec2(-1.0, -4.0);
-pub const TIMER4_POS: DVec2 = dvec2(-1.0, -5.0);
-pub const TIMER5_POS: DVec2 = dvec2(-2.5, -5.5);
-pub const TIMER6_POS: DVec2 = dvec2(-1.0, -6.0);
+pub const TIMER1_POS: DVec2 = dvec2(-2.5, -0.5);
+pub const TIMER2_POS: DVec2 = dvec2(-1.0, -0.5);
+pub const TIMER3_POS: DVec2 = dvec2(-1.0, -1.5);
+pub const TIMER4_POS: DVec2 = dvec2(-1.0, -2.5);
+pub const TIMER5_POS: DVec2 = dvec2(-2.5, -3.0);
+pub const TIMER6_POS: DVec2 = dvec2(-1.0, -3.5);
 
 /// Direction constants.
 pub const DIR_U: u32 = 0;

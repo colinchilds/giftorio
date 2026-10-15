@@ -100,3 +100,11 @@ export type ValueOf<T> = T[keyof T];
 export function pxToRem(px: number): number {
   return px / parseFloat(getComputedStyle(document.documentElement).fontSize);
 }
+
+export function kebabCaseToSentenceCase<S extends string>(str: S): SentenceCase<S> {
+  return (str && str[0].toUpperCase() + str.slice(1).replaceAll("-", " ")) as SentenceCase<S>;
+}
+
+// i was bored
+type KebabCaseToSentenceCase<S extends string> = S extends `${infer First}-${infer Rest}` ? `${First} ${KebabCaseToSentenceCase<Rest>}` : S;
+type SentenceCase<S extends string> = S extends `${infer First}${infer Rest}` ? `${Uppercase<First>}${KebabCaseToSentenceCase<Rest>}` : S;

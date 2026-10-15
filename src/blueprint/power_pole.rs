@@ -86,7 +86,7 @@ impl PowerPoleOccupied {
         }
         impl Eq for OrderedDVec2 {}
 
-        let horiz = true ^ matches!(args.image_rotation, Deg90 | Deg270);
+        let horiz = args.prefer_horizontal_wires ^ matches!(args.image_rotation, Deg90 | Deg270);
         let mut pole_map = BTreeMap::<OrderedDVec2, u32>::new();
 
         self.requests
@@ -107,10 +107,14 @@ impl PowerPoleOccupied {
 
         for pole in &poles {
             let pos = pole.position;
-            if let Some(&prev) = pole_map.get(&OrderedDVec2(pos + dvec2(-cov, 0.0))) {
+            if (horiz || !pole_map.contains_key(&OrderedDVec2(pos + dvec2(0.0, cov))))
+                && let Some(&prev) = pole_map.get(&OrderedDVec2(pos + dvec2(-cov, 0.0)))
+            {
                 wires.push([prev, WIRE_C, pole.entity_number, WIRE_C]);
             }
-            if let Some(&prev) = pole_map.get(&OrderedDVec2(pos + dvec2(0.0, cov))) {
+            if (!horiz || !pole_map.contains_key(&OrderedDVec2(pos + dvec2(-cov, 0.0))))
+                && let Some(&prev) = pole_map.get(&OrderedDVec2(pos + dvec2(0.0, cov)))
+            {
                 wires.push([prev, WIRE_C, pole.entity_number, WIRE_C]);
             }
         }
