@@ -16,31 +16,6 @@
     "tooltip": "Whether to include power poles in the blueprint.",
     "splash": "Power poles are not required on space platforms."
   },
-  "powerPoleName": {
-    "name": "Pole Entity",
-    "type": "select",
-    "options": {
-      "substation": {
-        "name": "Substation",
-        "tooltip": "Use the \"substation\" entity to trasmit power."
-      },
-      "small-electric-pole": {
-        "name": "Small",
-        "tooltip": "Use the \"small-electric-pole\" entity to trasmit power."
-      },
-      "medium-electric-pole": {
-        "name": "Medium",
-        "tooltip": "Use the \"medium-electric-pole\" entity to trasmit power."
-      },
-      "big-electric-pole": {
-        "name": "Big",
-        "tooltip": "Use the \"big-electric-pole\" entity to trasmit power.",
-        "splash": "bruh"
-      }
-    },
-    "tooltip": "The name of the power pole entity to use.",
-    "splash": "The default name is 'substation'."
-  },
   "staticImageMode": {
     "name": "Static Image Mode",
     "type": "select",

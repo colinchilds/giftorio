@@ -1,8 +1,92 @@
 use crate::blueprint::models::{ComparatorString as CompStr, *};
 use crate::blueprint::{constants::*, macros::*, power_pole::*, util::*};
-use glam::{dvec2, DVec2, IVec2};
-use std::{collections::HashMap, io::Read, sync::Arc};
+use glam::{DVec2, IVec2, dvec2};
+use std::{cell::RefCell, collections::HashMap, io::Read, sync::Arc};
 use wasm_bindgen::*;
+
+thread_local! {
+    static COMB_POS_DATA: RefCell<Option<Box<[CombinatorPositionData]>>> = const { RefCell::new(None) };
+}
+
+#[derive(serde::Serialize, Clone)]
+struct CombinatorPositionData {
+    compression: Option<SignalCompression>,
+    dim: DVec2,
+    grayscale_bits: Vec<u32>,
+    blueprint: Blueprint,
+}
+
+pub fn load_comb_pos_json(json_bytes: &[u8]) -> Result<(), JsValue> {
+    #[derive(serde::Deserialize)]
+    struct CombinatorPositionJson {
+        compression: Option<SignalCompression>,
+        #[serde(rename = "grayscaleBits")]
+        grayscale_bits: OneOrMany<u32>,
+        blueprints: OneOrMany<PositionEntry>,
+    }
+    #[derive(Clone, serde::Deserialize)]
+    struct PositionEntry {
+        #[serde(skip)]
+        #[allow(dead_code)]
+        description: Option<String>, // for comments
+        blueprint: String,
+    }
+
+    fn get_bounding_box(en: &BlueprintEntity) -> Result<std::ops::Range<DVec2>, JsValue> {
+        let offset = DVec2::from(match en.name.as_ref() {
+            name if name == &**ARI_CB || name == &**DEC_CB => match en.direction.unwrap_or(0) {
+                DIR_U | DIR_D => (1.0, 2.0),
+                DIR_L | DIR_R => (2.0, 1.0),
+                _ => return Err(JsValue::from_str("Unsupported entity direction")),
+            },
+            name if name == &**CONSTANT_COMB => (1.0, 1.0),
+            _ => return Err(JsValue::from_str("Unsupported entity type")),
+        });
+        Ok((en.position - offset / 2.0)..(en.position + offset / 2.0))
+    }
+
+    let parsed: Box<[CombinatorPositionJson]> =
+        serde_json::from_slice(json_bytes).map_js_err("JSON error")?;
+
+    let data_iter = parsed.iter().flat_map(|cb| {
+        cb.blueprints.to_vec().into_iter().map(move |entry| {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+            // Decode blueprint string (removing leading "0" prefix)
+            let b64 = STANDARD
+                .decode(entry.blueprint[1..].as_bytes())
+                .map_js_err("base64 error")?;
+            let mut zlib = flate2::read::ZlibDecoder::new(&b64[..]);
+            let mut buf = String::new();
+
+            zlib.read_to_string(&mut buf).map_js_err("base64 error")?;
+
+            let mut blueprint = Blueprint::from_json(buf).map_js_err("JSON error")?;
+            let mut bounds = DVec2::INFINITY..DVec2::NEG_INFINITY;
+
+            for en in blueprint.blueprint.entities.iter() {
+                let en_bounds = get_bounding_box(en)?;
+                bounds.start = bounds.start.min(en_bounds.start);
+                bounds.end = bounds.end.max(en_bounds.end);
+            }
+            let offset = -bounds.start;
+
+            for en in blueprint.blueprint.entities.iter_mut() {
+                en.position += offset;
+            }
+
+            Ok(CombinatorPositionData {
+                compression: cb.compression.clone(),
+                dim: bounds.end - bounds.start,
+                grayscale_bits: cb.grayscale_bits.to_vec(),
+                blueprint,
+            })
+        })
+    });
+
+    COMB_POS_DATA.replace(Some(data_iter.collect::<Result<Box<_>, JsValue>>()?));
+    Ok(())
+}
 
 /// Generates combinator entities and wiring for each frame group.
 ///
@@ -39,24 +123,25 @@ pub fn generate_combinators(
 > {
     // Positions for combinators, for different widths.
     // TODO: Don't recalculate this for every group
-    let comb_pos_data = load_comb_pos_json(&args.comb_pos_json)?;
-    let mut best_pos_data: Option<&CombinatorPositionData> = None;
+    let mut best_pos_data: Option<CombinatorPositionData> = None;
     let mut pos_dict: HashMap<String, &BlueprintEntity> = HashMap::new();
     let mut base_pos = start_pos;
     let use_compact_layout = max_cols_per_grp < 2;
     let use_delta_comp = args.signal_compression == Some(SignalCompression::Delta);
 
-    for d in &comb_pos_data {
-        if d.dim.x <= max_cols_per_grp as f64
-            && use_delta_comp == matches!(d.compression, Some(SignalCompression::Delta))
-            && d.grayscale_bits.contains(&args.grayscale_bits)
-            && d.dim.x > best_pos_data.map_or(0.0, |v| v.dim.x)
-        {
-            best_pos_data = Some(d);
+    COMB_POS_DATA.with_borrow(|data| {
+        for d in data.as_ref().expect("No combinator positions data") {
+            if d.dim.x <= max_cols_per_grp as f64
+                && use_delta_comp == matches!(d.compression, Some(SignalCompression::Delta))
+                && d.grayscale_bits.contains(&args.grayscale_bits)
+                && d.dim.x > best_pos_data.as_ref().map_or(0.0, |v| v.dim.x)
+            {
+                best_pos_data = Some(d.clone());
+            }
         }
-    }
+    });
 
-    if let Some(d) = best_pos_data {
+    if let Some(d) = best_pos_data.as_ref() {
         for en in d.blueprint.blueprint.entities.iter() {
             if let Some(tag) = en.player_description.as_ref() {
                 pos_dict.insert(tag.clone(), en);
@@ -71,7 +156,7 @@ pub fn generate_combinators(
 
     let use_const_cbs = matches!(args.mode, Mode::Static { const_cb: true, .. });
     let gray_bits = args.grayscale_bits;
-    let height = best_pos_data.map_or(0.0, |v| v.dim.y);
+    let height = best_pos_data.as_ref().map_or(0.0, |v| v.dim.y);
     let base_offset = base_pos; // Add a constant offset on dimensions
 
     base_pos.y -= height; // Set offset for combinators
@@ -88,12 +173,9 @@ pub fn generate_combinators(
     if use_delta_comp {
         let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("delay"));
         let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
+        let cond = DeciderCombinatorCondition::new(SIG_EACH.clone(), 0, CompStr::Ne);
         let dc = DeciderCombinatorParameters {
-            conditions: vec![DeciderCombinatorCondition::new(
-                SIG_EACH.clone(),
-                0,
-                CompStr::Ne,
-            )],
+            conditions: vec![cond],
             outputs: vec![cb_output],
         };
         en = en.with_tag("delay comb").with_direction(get_dir("delay"));
@@ -225,12 +307,11 @@ pub fn generate_combinators(
                 wires.push([curr_ent_n, WIRE_OUT_G, ent_n, WIRE_G]);
             }
         }
-        data_cbs.push(en.with_direction(if use_const_cbs {
-            DIR_D
-        } else if use_compact_layout {
-            DIR_U
-        } else {
-            DIR_R
+
+        data_cbs.push(en.with_direction(match use_const_cbs {
+            true => DIR_D,
+            _ if use_compact_layout => DIR_U,
+            _ => DIR_R,
         }));
 
         let x_i = grid_pos.x as usize;
@@ -270,82 +351,4 @@ pub fn generate_combinators(
         wires,
         (first_connection_ent, comb_out_ent_n, curr_ent_n),
     ));
-}
-
-#[derive(serde::Serialize)]
-struct CombinatorPositionData {
-    compression: Option<SignalCompression>,
-    dim: DVec2,
-    grayscale_bits: Vec<u32>,
-    blueprint: Blueprint,
-}
-
-fn load_comb_pos_json(json: &str) -> Result<Vec<CombinatorPositionData>, JsValue> {
-    #[derive(serde::Deserialize)]
-    struct CombinatorPositionJson {
-        compression: Option<SignalCompression>,
-        #[serde(rename = "grayscaleBits")]
-        grayscale_bits: OneOrMany<u32>,
-        blueprints: OneOrMany<PositionEntry>,
-    }
-    #[derive(Clone, serde::Deserialize)]
-    struct PositionEntry {
-        #[serde(skip)]
-        #[allow(dead_code)]
-        description: Option<String>, // for comments
-        blueprint: String,
-    }
-
-    fn get_bounding_box(en: &BlueprintEntity) -> Result<std::ops::Range<DVec2>, JsValue> {
-        let offset = DVec2::from(match en.name.as_ref() {
-            name if name == &**ARI_CB || name == &**DEC_CB => match en.direction.unwrap_or(0) {
-                DIR_U | DIR_D => (1.0, 2.0),
-                DIR_L | DIR_R => (2.0, 1.0),
-                _ => return Err(JsValue::from_str("Unsupported entity direction")),
-            },
-            name if name == &**CONSTANT_COMB => (1.0, 1.0),
-            _ => return Err(JsValue::from_str("Unsupported entity type")),
-        });
-        Ok((en.position - offset / 2.0)..(en.position + offset / 2.0))
-    }
-
-    Ok(serde_json::from_str::<Vec<CombinatorPositionJson>>(&json)
-        .map_js_err("JSON error")?
-        .iter()
-        .flat_map(|cb| {
-            cb.blueprints.to_vec().into_iter().map(move |entry| {
-                use base64::{engine::general_purpose::STANDARD, Engine as _};
-
-                // Decode blueprint string (removing leading "0" prefix)
-                let b64 = STANDARD
-                    .decode(entry.blueprint[1..].as_bytes())
-                    .map_js_err("base64 error")?;
-                let mut zlib = flate2::read::ZlibDecoder::new(&b64[..]);
-                let mut buf = String::new();
-
-                zlib.read_to_string(&mut buf).map_js_err("base64 error")?;
-
-                let mut blueprint = Blueprint::from_json(buf).map_js_err("JSON error")?;
-                let mut bounds = DVec2::INFINITY..DVec2::NEG_INFINITY;
-
-                for en in blueprint.blueprint.entities.iter() {
-                    let en_bounds = get_bounding_box(en)?;
-                    bounds.start = bounds.start.min(en_bounds.start);
-                    bounds.end = bounds.end.max(en_bounds.end);
-                }
-                let offset = -bounds.start;
-
-                for en in blueprint.blueprint.entities.iter_mut() {
-                    en.position += offset;
-                }
-
-                Ok(CombinatorPositionData {
-                    compression: cb.compression.clone(),
-                    dim: bounds.end - bounds.start,
-                    grayscale_bits: cb.grayscale_bits.to_vec(),
-                    blueprint,
-                })
-            })
-        })
-        .collect::<Result<Vec<CombinatorPositionData>, JsValue>>()?)
 }

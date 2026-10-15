@@ -1,14 +1,9 @@
+use crate::blueprint::data::PROTOTYPE_DATA;
 use crate::blueprint::{constants::*, models::*};
 use crate::models::ImageRotation::*;
-use glam::{dvec2, DVec2};
-use std::collections::BTreeMap;
-use std::{collections::HashMap, sync::Arc};
-
-#[derive(serde::Deserialize)]
-struct PowerPoleInfoEntry {
-    bounding_box: DVec2,
-    coverage: HashMap<String, f64>,
-}
+use glam::{DVec2, dvec2};
+use std::{collections::BTreeMap, sync::Arc};
+use wasm_bindgen::JsValue;
 
 /// Tracks cells occupied by power poles.
 pub struct PowerPoleOccupied {
@@ -18,30 +13,30 @@ pub struct PowerPoleOccupied {
     requests: Vec<DVec2>,
 }
 impl PowerPoleOccupied {
-    pub fn new(mut start_pos: DVec2, args: &BlueprintArgs) -> Self {
+    pub fn new(mut start_pos: DVec2, args: &BlueprintArgs) -> Result<Self, JsValue> {
         let quality = args.power_pole_quality.clone();
         let quality = quality.filter(|q| *q != *DEFAULT_QUAL_KEY);
-
-        const COVERAGE: &'static str = include_str!("powerPoleCoverage.json");
-
         let name = args.power_pole_name.clone();
         let name = name.unwrap_or(DEFAULT_POWER_POLE_NAME.to_owned());
-        let map: HashMap<String, PowerPoleInfoEntry> = serde_json::from_str(COVERAGE).unwrap();
-        let entry = &map[&name];
-        let cov = entry.coverage.clone();
-        let default_cov = *cov.get("_").unwrap();
+        let data = PROTOTYPE_DATA.with_borrow(|data| {
+            let data = &data.as_ref().expect("No power pole data loaded yet!");
+            let poles = &data.electric_poles;
+            let p = poles.iter().find(|p| *p.name == name);
+            p.expect(&format!("No power pole '{name}'!")).clone()
+        });
+        let bounding_box = DVec2::new(data.tile_width as f64, data.tile_height as f64);
+        let dists = &data.supply_area_distances;
+        let half_cov = dists.iter().find(|d| quality == Some(d.quality.clone()));
+        let cov = 2.0 * half_cov.unwrap_or(&dists[0]).supply_area_distance;
 
-        start_pos.x -= entry.bounding_box.x / 2.0;
-        start_pos.y += entry.bounding_box.y / 2.0;
+        start_pos += bounding_box * dvec2(-0.5, 0.5);
 
-        Self {
-            bounding_box: entry.bounding_box,
-            ref_entity: BlueprintEntity::new(0, Arc::from(name), start_pos)
-                .with_quality(quality.clone()),
-            coverage: quality.map_or(default_cov, |q| *cov.get(&*q).unwrap_or(&default_cov))
-                * args.include_power_poles as i32 as f64,
+        Ok(Self {
+            bounding_box,
+            ref_entity: BlueprintEntity::new(0, Arc::from(name), start_pos).with_quality(quality),
+            coverage: cov * (args.include_power_poles as i32 as f64),
             requests: Vec::new(),
-        }
+        })
     }
 
     /// Generates power pole entities and wires for powering the blueprint.

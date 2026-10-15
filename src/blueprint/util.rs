@@ -142,27 +142,32 @@ pub unsafe fn rgba_to_rgb_simd(rgba: &[u8]) -> Vec<i32> {
     let mut i = 0;
 
     while i + 16 <= rgba.len() {
-        // Load 4 RGBA pixels:
-        //
-        // [R0 G0 B0 A0 R1 G1 B1 A1 R2 G2 B2 A2 R3 G3 B3 A3]
-        let input = v128_load(rgba.as_ptr().add(i) as *const v128);
+        unsafe {
+            // Load 4 RGBA pixels:
+            //
+            // [R0 G0 B0 A0 R1 G1 B1 A1 R2 G2 B2 A2 R3 G3 B3 A3]
+            let input = v128_load(rgba.as_ptr().add(i) as *const v128);
 
-        // Little-endian output needs:
-        //
-        // [B0 G0 R0 00 B1 G1 R1 00 B2 G2 R2 00 B3 G3 R3 00]
-        //
-        // Indices 0..15 = input
-        // Indices 16..31 = zero
-        let packed =
-            i8x16_shuffle::<2, 1, 0, 16, 6, 5, 4, 16, 10, 9, 8, 16, 14, 13, 12, 16>(input, zero);
+            // Little-endian output needs:
+            //
+            // [B0 G0 R0 00 B1 G1 R1 00 B2 G2 R2 00 B3 G3 R3 00]
+            //
+            // Indices 0..15 = input
+            // Indices 16..31 = zero
+            let packed = i8x16_shuffle::<2, 1, 0, 16, 6, 5, 4, 16, 10, 9, 8, 16, 14, 13, 12, 16>(
+                input, zero,
+            );
 
-        // Write the 4 resulting i32s directly.
-        v128_store(output.as_mut_ptr().add(i / 4) as *mut v128, packed);
+            // Write the 4 resulting i32s directly.
 
+            v128_store(output.as_mut_ptr().add(i / 4) as *mut v128, packed);
+        }
         i += 16;
     }
 
-    output.set_len(pixel_count);
+    unsafe {
+        output.set_len(pixel_count);
+    }
 
     // Handle remaining pixels.
     while i < rgba.len() {

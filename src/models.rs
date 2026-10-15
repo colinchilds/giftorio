@@ -4,8 +4,6 @@ use std::sync::Arc;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlueprintArgs {
     pub name: Option<String>,
-    #[serde(rename = "combinatorPositionsJson")]
-    pub comb_pos_json: String,
     #[serde(rename = "customHeight")]
     pub custom_height: Option<u32>,
     #[serde(rename = "customWidth")]

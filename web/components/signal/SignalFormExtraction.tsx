@@ -1,4 +1,3 @@
-import codeCommandUrl from "@/assets/data/generate-signals.lua?url";
 import EventListener from "@/components/EventListener";
 import KeyboardListener from "@/components/KeyboardListener";
 import { ToastsApi } from "@/components/Toasts";
@@ -26,7 +25,7 @@ export default function Extraction({ showToast, ...props }: SignalFormExtraction
   const [currData, setCurrData] = createSignal<SignalData | null>(null); // Current data we're editing
   const [status, setStatus] = createSignal<ExtractionStatus | null>(null);
   const [formData, setFormData] = createStore(DEFAULT_FORM_DATA);
-  const [codeCommand] = createResource(() => fetch(codeCommandUrl).then((v) => v.text()));
+  const [codeCommand] = createResource(() => fetch("/assets/data/generate-signals.lua").then((v) => v.text()));
   let refDialog: HTMLDialogElement = null!;
 
   function show() {

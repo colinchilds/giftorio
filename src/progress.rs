@@ -1,9 +1,8 @@
-use js_sys::Function;
-use std::{cell::RefCell, thread_local};
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
-    static PROGRESS_CALLBACK: RefCell<Option<Function>> = RefCell::new(None);
+    static PROGRESS_CALLBACK: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
 }
 
 /// Sets the progress callback to be used during blueprint generation.
@@ -12,10 +11,8 @@ thread_local! {
 ///
 /// * `callback` - A JavaScript function accepting a percentage and a status message.
 #[wasm_bindgen]
-pub fn set_progress_callback(callback: Function) {
-    PROGRESS_CALLBACK.with(|progress| {
-        *progress.borrow_mut() = Some(callback);
-    });
+pub fn set_progress_callback(callback: js_sys::Function) {
+    PROGRESS_CALLBACK.with_borrow_mut(|progress| *progress = Some(callback));
 }
 
 /// Reports progress by calling the registered progress callback.
@@ -28,10 +25,9 @@ pub fn report_progress<T>(percentage: T, status: &str)
 where
     T: Into<f64>,
 {
-    let pct = 100.0 * percentage.into();
-
-    PROGRESS_CALLBACK.with(|progress| {
-        if let Some(ref callback) = *progress.borrow() {
+    PROGRESS_CALLBACK.with_borrow(|progress| {
+        if let Some(ref callback) = *progress {
+            let pct = 100.0 * percentage.into();
             let _ = callback.call2(&JsValue::NULL, &JsValue::from(pct), &JsValue::from(status));
         }
     });

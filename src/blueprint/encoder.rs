@@ -1,18 +1,18 @@
+use crate::JsValue;
 use crate::blueprint::blueprint::BlueprintGenerator;
 use crate::blueprint::util::ResultJsExt;
 use crate::constants::FACTORIO_VERSION_PREFIX;
 use crate::models::{BlueprintArgs, OutputFormat};
 use crate::progress::report_progress;
-use crate::JsValue;
 use base64::{
-    engine::{general_purpose::STANDARD, GeneralPurpose},
+    engine::{GeneralPurpose, general_purpose::STANDARD},
     write::EncoderWriter,
 };
-use flate2::{write::ZlibEncoder, Compression};
+use flate2::{Compression, write::ZlibEncoder};
 use std::io::Write;
 
 pub struct BlueprintEncoder<'a, W: Write> {
-    gen: BlueprintGenerator<'a>,
+    generator: BlueprintGenerator<'a>,
     writer: Option<OutputWriter<'a, W>>,
 }
 enum OutputWriter<'a, W: Write> {
@@ -55,7 +55,7 @@ impl<'a, W: Write> OutputWriter<'a, W> {
 
 impl<'a, W: Write> BlueprintEncoder<'a, W> {
     pub fn new(
-        gen: BlueprintGenerator<'a>,
+        generator: BlueprintGenerator<'a>,
         args: &BlueprintArgs,
         mut stream_writer: W,
     ) -> Result<Self, JsValue> {
@@ -74,12 +74,13 @@ impl<'a, W: Write> BlueprintEncoder<'a, W> {
             _ => OutputWriter::Json(stream_writer),
         });
 
-        Ok(Self { gen, writer })
+        Ok(Self { generator, writer })
     }
 
     pub fn next(&mut self) -> Result<Option<()>, JsValue> {
-        if !self.gen.done() {
-            self.gen.next_chunk(&mut self.writer.as_mut().unwrap())?;
+        if !self.generator.done() {
+            self.generator
+                .next_chunk(&mut self.writer.as_mut().unwrap())?;
             return Ok(Some(()));
         }
         Ok(None)
@@ -87,10 +88,7 @@ impl<'a, W: Write> BlueprintEncoder<'a, W> {
     pub fn finish(mut self) -> Result<W, JsValue> {
         report_progress(1.0, "Finishing...");
 
-        self.writer
-            .take()
-            .unwrap()
-            .finish()
-            .map_js_err("Write error")
+        let w = self.writer.take().unwrap();
+        w.finish().map_js_err("Write error")
     }
 }

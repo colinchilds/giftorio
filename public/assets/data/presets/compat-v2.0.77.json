@@ -1,4 +1,5 @@
 {
+  "description": "Signals from the base game (v2.0.77). Excludes 'satellite' signals for upwards compatibility with Space Age.",
   "signals": [
     { "type": "item", "name": "wooden-chest" },
     { "type": "item", "name": "iron-chest" },

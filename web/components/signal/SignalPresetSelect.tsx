@@ -9,13 +9,21 @@ import SignalFormExtraction, { SignalFormExtractionApi } from "./SignalFormExtra
 
 export interface SignalPresetSelectProps {
   setSignalPreset(v: SignalPreset): void;
+  setSignalPresetRaw(v: Uint8Array): void;
   showToast: ToastsApi["showToast"];
 }
 export default function SignalPresetSelect(props: SignalPresetSelectProps) {
   const PREFIX = "signal-preset-";
 
   const [currPresetKey, setCurrPresetKey] = createSignal<string | null>(null);
-  const [currPreset, { mutate: setCurrPreset }] = createResource(currPresetKey, async (k) => (k ? await getSignalPreset(k) : null));
+  const [currPresetRaw, setCurrPresetRaw] = createSignal<Uint8Array | null>(null);
+  const [currPreset, { mutate: setCurrPreset }] = createResource(currPresetKey, async (k) => {
+    if (!k) return null;
+
+    const { preset, raw } = await getSignalPreset(k);
+    setCurrPresetRaw(raw);
+    return preset;
+  });
   const [signalPresetKeys, { refetch: refetchSignalPresetKeys }] = createResource(getSignalPresetNames);
 
   let refDialogDelete: DialogDeleteApi = null!;
@@ -25,6 +33,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
 
   createEffect(() => currPresetKey() && localStorage.setItem(CURR_SIGNAL_PRESET_KEY, currPresetKey()!));
   createEffect(() => props.setSignalPreset(currPreset()!));
+  createEffect(() => props.setSignalPresetRaw(currPresetRaw()!));
 
   return (
     <div class="mt-5 mb-1 flex flex-col items-start gap-1 justify-between w-full">
@@ -87,6 +96,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
                   await refetchSignalPresetKeys();
 
                   setCurrPreset(preset);
+                  setCurrPresetRaw(new TextEncoder().encode(JSON.stringify(preset)));
                   setCurrPresetKey(key);
 
                   props.showToast(`Preset "${key}" created!`);

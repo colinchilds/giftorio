@@ -38,8 +38,7 @@ pub async fn run_blueprint(
 
     let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
     let mut frame_data: Option<FrameData> = None;
-    let promises: Rc<RefCell<VecDeque<Vec<js_sys::Promise>>>> =
-        Rc::new(RefCell::new(VecDeque::new()));
+    let promises = Rc::new(const { RefCell::new(VecDeque::<Vec<js_sys::Promise>>::new()) });
     let promise_q = Rc::clone(&promises);
 
     if matches!(args.mode, Mode::Static { .. }) {
@@ -49,10 +48,10 @@ pub async fn run_blueprint(
     if matches!(args.mode, Mode::Full | Mode::Static { .. }) {
         // Create iterator over frames. Auto-detects the total number of frames + total duration
         // using custom byte scanning.
-        frame_data = Some(FrameData::new(image_data, &args)?);
+        frame_data = Some(FrameData::new(image_data, &args).unwrap_throw());
     }
 
-    let writer = StreamingWriter::new(1 * 1000 * 1000, move |chunk| {
+    let writer = StreamingWriter::new(1 * 1000 * 1000, |chunk| {
         let data = js_sys::Uint8Array::from(chunk.as_slice());
         let promise = send_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
         let promise = js_sys::Promise::from(promise);
@@ -60,8 +59,8 @@ pub async fn run_blueprint(
     });
 
     // Yields JSON or compressed blueprint in chunks
-    let gen = BlueprintGenerator::new(frame_data, &args)?;
-    let mut encoder = BlueprintEncoder::new(gen, &args, writer)?;
+    let generator = BlueprintGenerator::new(frame_data, &args).unwrap_throw();
+    let mut encoder = BlueprintEncoder::new(generator, &args, writer).unwrap_throw();
 
     let flush = async || -> Result<(), JsValue> {
         // Get the earliest list of promises from the queue
@@ -76,12 +75,12 @@ pub async fn run_blueprint(
     promises.borrow_mut().push_back(vec![]);
 
     // `encoder.next()` may generate a series of chunks
-    while let Some(_) = encoder.next()? {
+    while let Some(_) = encoder.next().unwrap_throw() {
         flush().await?; // Wait for all those chunks to be sent
         promises.borrow_mut().push_back(vec![]); // Repopulate
     }
 
-    let mut stream_writer = encoder.finish()?;
+    let mut stream_writer = encoder.finish().unwrap_throw();
     stream_writer.finish();
 
     flush().await?; // Flush tail
@@ -101,6 +100,12 @@ pub async fn run_blueprint(
 /// Nothing.
 #[wasm_bindgen]
 pub async fn set_signal_data(data_json: &[u8]) -> Result<(), JsValue> {
-    blueprint::signals::load_signal_data(data_json);
+    blueprint::data::load_data(data_json);
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub async fn set_comb_pos_data(data_json: &[u8]) -> Result<(), JsValue> {
+    blueprint::combinator::load_comb_pos_json(data_json)?;
     Ok(())
 }

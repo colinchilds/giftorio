@@ -4,7 +4,6 @@ import { createEffect, createSignal, For, JSX, Show } from "solid-js";
 
 export type SelectOption = { name: string; tooltip?: string };
 export interface FactorioSelectProps extends Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, "onChange"> {
-  children?: JSX.Element;
   formArgs?: FormElementValue;
   initialValue: string;
   key: string;
@@ -21,18 +20,16 @@ export default function FactorioSelect(props: FactorioSelectProps) {
     selectProps = _selectProps;
   }
 
-  const [currValue, setCurrValue] = createSignal(props.initialValue);
+  const currValue = () => props.initialValue;
   const [selectTitle, setSelectTitle] = createSignal<string>();
 
   function handleChange(e: Event) {
-    const target = e.currentTarget as HTMLSelectElement;
-    setCurrValue(target.value);
-    props.onChange(target.value);
+    props.onChange((e.currentTarget as HTMLSelectElement).value);
   }
 
   createEffect(() => {
     const value = currValue();
-    const option = props.options.find((v) => (typeof v === "string" ? v : v[0] === value));
+    const option = props.options.find(([k]) => k === value);
     if (!option) return;
 
     const [, info] = option;
@@ -56,23 +53,21 @@ export default function FactorioSelect(props: FactorioSelectProps) {
         </label>
       </Show>
       <select
-        // @ts-ignore
-        prop:value={currValue()}
+        {...selectProps}
         id={props.key}
         name={props.key}
         onChange={handleChange}
         disabled={props.disabled}
         title={selectTitle()}
-        {...selectProps}
+        value={currValue()}
       >
         <For each={props.options}>
           {([k, v]) => (
-            <option title={typeof v === "string" ? undefined : v.tooltip} value={k}>
+            <option title={typeof v === "string" ? undefined : v.tooltip} value={k} selected={k === currValue()}>
               {typeof v === "string" ? v : v.name}
             </option>
           )}
         </For>
-        {props.children}
       </select>
     </div>
   );

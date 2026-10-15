@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use glam::{dvec2, DVec2};
+use glam::{DVec2, dvec2};
 
 use crate::macros::lazy_const;
 

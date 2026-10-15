@@ -1,9 +1,9 @@
 use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_S};
-use crate::image_utils::{animation_info, resize_dimensions, AnimationInfo};
+use crate::image_utils::{AnimationInfo, animation_info, resize_dimensions};
 use crate::models::{ImageRotation::*, *};
 use crate::progress::set_progress;
-use glam::{uvec2, DVec2, UVec2};
-use image::{imageops, AnimationDecoder, ImageDecoder};
+use glam::{DVec2, UVec2, uvec2};
+use image::{AnimationDecoder, ImageDecoder, imageops};
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
@@ -102,17 +102,15 @@ impl Iterator for FrameData<'_> {
             if matches!(self.args.mode, Mode::Static { .. }) {
                 frame = match self.frames.next()? {
                     Ok(frame) => Some(frame),
-                    Err(e) => return Some(Err(JsValue::from_str(&format!("Decode error: {e}")))),
+                    Err(e) => return Some(Err(JsValue::from_str(&format!("Decode err: {e}")))),
                 }
             }
         }
 
         loop {
-            if self.prev_frame.is_some() {
-                if self.out_t_ms() <= self.curr_n_ms {
-                    frame = Some(self.prev_frame.clone().unwrap().0);
-                    self.samp_i += 1;
-                }
+            if self.prev_frame.is_some() && self.out_t_ms() <= self.curr_n_ms {
+                frame = Some(self.prev_frame.clone().unwrap().0);
+                self.samp_i += 1;
             }
 
             // Flush any remaining frames
@@ -122,22 +120,20 @@ impl Iterator for FrameData<'_> {
 
             // Only get the next frame if we're past the current output time
             if self.out_t_ms() >= self.curr_n_ms {
-                if let Some(frame) = match self.frames.next() {
+                let frame = match self.frames.next() {
                     Some(frame) => match frame {
-                        Ok(frame) => Some(frame),
-                        Err(e) => {
-                            return Some(Err(JsValue::from_str(&format!("Decode error: {e}"))))
-                        }
+                        Ok(frame) => frame,
+                        Err(e) => return Some(Err(JsValue::from_str(&format!("Decode err: {e}")))),
                     },
                     None => return None,
-                } {
-                    let (ms, _) = frame.delay().numer_denom_ms(); // Delay is duration of the frame
-                    let delay = if ms == 0 { DEFAULT_FRAME_DELAY_MS } else { ms };
+                };
 
-                    self.curr_n_ms += delay;
-                    self.prev_frame = Some((frame, self.curr_n_ms));
-                    self.frame_i += 1;
-                }
+                let (ms, _) = frame.delay().numer_denom_ms(); // Delay is duration of the frame
+                let delay = if ms == 0 { DEFAULT_FRAME_DELAY_MS } else { ms };
+
+                self.curr_n_ms += delay;
+                self.prev_frame = Some((frame, self.curr_n_ms));
+                self.frame_i += 1;
             }
 
             if self.is_first {

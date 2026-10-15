@@ -1,5 +1,4 @@
 import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedAnimationError } from "@/animationInfo";
-import COMB_POS_DATA from "@/assets/data/combinator-positions.json";
 import Background, { BackgroundApi } from "@/components/Background";
 import DialogDelete, { DialogDeleteApi } from "@/components/DialogDelete";
 import FactorioSelect, { SelectOption } from "@/components/FactorioSelect";
@@ -38,6 +37,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [imageData, setImageData] = createSignal<ImageData>();
   const [isStaticImage, setIsStaticImage] = createSignal(false);
   const [signalPreset, setSignalPreset] = createSignal<SignalPreset | null>(null);
+  const [signalPresetRaw, setSignalPresetRaw] = createSignal<Uint8Array | null>(null);
   const [timingSignals, setTimingSignals] = createSignal<TimingSignals | null>(null);
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
 
@@ -192,8 +192,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
     }
 
-    console.log(isStaticImage);
-
     setIsStaticImage(isStaticImage);
     setImageData(data);
     setCurrFile(file);
@@ -266,7 +264,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         generate: {
           imageData: data,
           args: {
-            combinatorPositionsJson: JSON.stringify(COMB_POS_DATA),
             customHeight: +formData.customHeight,
             customWidth: +formData.customWidth,
             displayMarginY: +formData.displayMarginY,
@@ -372,11 +369,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     setInitialValues(formData);
   });
   createEffect(() => localStorage.setItem(SHOW_ADVANCED_KEY, showAdvanced().toString()));
-  createEffect(() => {
-    if (signalPreset()) {
-      worker.postMessage({ signalPreset: signalPreset()! });
-    }
-  });
+  createEffect(() => signalPresetRaw() && worker.postMessage({ signalPresetRaw: signalPresetRaw()! }));
 
   function AnimationInfoDisplay(props: Partial<AnimationInfo> & { file: File | null }) {
     return (
@@ -458,12 +451,15 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             value = { ...value, disabled: true } as any;
           }
         }
-
         return [key, value] as const;
       }),
     );
-
-    return <For each={visibleFormElements().filter((v) => !!v)}>{([key, value]) => <FormElement {...{ key, value }} />}</For>;
+    return (
+      <For each={visibleFormElements().filter((v) => !!v)}>
+        {/* Use our custom form element parser to dynamically generate the elements */}
+        {([key, value]) => <FormElement {...{ key, value }} />}
+      </For>
+    );
   }
 
   return (
@@ -485,8 +481,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
           class="streaming-unavailable-warning transition-opacity duration-300"
           classList={{ "opacity-0": !showStreamingWindowWarning(), "opacity-100": showStreamingWindowWarning() }}
         >
-          ⚠️ Opened a new window to download the file as it was detected that the stream was stuck. If you're on Firefox, try soft
-          refreshing the page (Ctrl + R).
+          ⚠️ Opened a new window to download the file as the download stream appeared to be stuck. If you're on Firefox, try soft refreshing
+          the page (Ctrl + R).
         </div>
       </div>
       <div class="flex flex-col items-center justify-start min-h-screen">
@@ -583,7 +579,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                 </>
               )}
 
-              <SignalPresetSelect {...{ setSignalPreset, showToast }} />
+              <SignalPresetSelect {...{ setSignalPreset, setSignalPresetRaw, showToast }} />
               <For each={["grayscaleBits", "outputFormat"]}>
                 {(k) => <FormElement key={k} value={FORM_ELEMENTS[k as keyof typeof FORM_ELEMENTS]} />}
               </For>
@@ -621,20 +617,45 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                   key="includePowerPoles"
                   title="The quality level of the power poles."
                   disabled={!formData.includePowerPoles}
-                  options={[
-                    ["<default>", { name: "<Default>", tooltip: "Use the default quality level, if any." }],
-                    ...signalPreset()!.qualities.map((q) => [q, { name: q, tooltip: `Maps to the internal quality "${q}".` }] as const),
-                  ]}
-                  tooltip="The quality level of the power poles."
-                  splash={
-                    signalPreset()!.qualities.length === 0
-                      ? "Unavailable as the current signal preset does not support quality levels."
-                      : ""
+                  options={
+                    signalPreset()!.qualities.length
+                      ? [
+                          ["<default>", { name: "<Default>", tooltip: `Alias for "${signalPreset()!.qualities[0]}"` }],
+                          ...signalPreset()!.qualities.map((q) => {
+                            const poleData = signalPreset()!.electric_poles;
+                            const targetName = formData.powerPoleName;
+                            const { supply_area_distance: dist } = (
+                              poleData.find((d) => d.name === targetName) ?? poleData[0]!
+                            ).supply_area_distances.find((v) => v.quality === q)!;
+
+                            const tooltip = `${dist * 2}x${dist * 2} Supply area`;
+                            return [q, { name: q, tooltip }] as const;
+                          }),
+                        ]
+                      : []
                   }
+                  tooltip="The quality level of the power poles."
+                  splash={signalPreset()!.qualities.length === 0 ? "Irrelevant for the current signal preset." : ""}
                   initialValue={formData.powerPoleQuality ?? "<default>"}
                   onChange={(v) => setFormData("powerPoleQuality", v as any)}
                 />
+                <FactorioSelect
+                  name="Pole Entity"
+                  key="powerPoleName"
+                  disabled={!formData.includePowerPoles}
+                  options={signalPreset()!.electric_poles.map(({ name, supply_area_distances: dists, ...p }) => {
+                    const targetQual = formData.powerPoleQuality;
+                    const dist = (dists.find((d) => !targetQual || d.quality === targetQual) ?? dists[0])?.supply_area_distance;
+                    const tooltip = `${dist * 2}x${dist * 2} Supply area, ${p.tile_width}x${p.tile_height} Footprint`;
+                    return [name, { name, tooltip }] as const;
+                  })}
+                  tooltip="The name of the electric pole entity to use to power the blueprint."
+                  splash={signalPreset()!.electric_poles.length === 0 ? "Irrelevant for current signal preset." : ""}
+                  initialValue={formData.powerPoleName}
+                  onChange={(v) => setFormData("powerPoleName", v as any)}
+                />
               </Show>
+
               <FormElementsDisplay isStaticImage={isStaticImage()} />
 
               <hr class="my-2" />

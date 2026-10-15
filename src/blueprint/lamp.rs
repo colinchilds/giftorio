@@ -1,5 +1,5 @@
 use crate::blueprint::{constants::*, models::*, power_pole::*};
-use glam::{dvec2, DVec2, UVec2};
+use glam::{DVec2, UVec2, dvec2};
 use std::{ops::Not, sync::Arc};
 
 /// Generates a grid of lamp entities for the blueprint.
@@ -70,7 +70,6 @@ pub fn generate_lamps(
                 let frame = curr_frame.as_ref();
                 let frame = frame.expect("StaticImage without combintors requires a frame");
                 let p = frame.get_pixel(c as u32, r as u32);
-
                 lamp = lamp.with_color(Color {
                     r: p[0] as f64 / 255.0,
                     g: p[1] as f64 / 255.0,
@@ -94,23 +93,22 @@ pub fn generate_lamps(
 
                 // prev_ents_n tracks the entity numbers for the rows above
                 // if it's none then we never connected the top row
-                if !matches!(mode, Mode::LampGrid | Mode::Static { timer: false, .. }) {
-                    if is_top && (r == 0 || top_left_ent_n.is_none()) {
-                        if let Some(prev) = prev_ent_n {
-                            wires.push([curr_ent_n, WIRE_R, prev, WIRE_R]); // horizontal timing wire
-                        }
-                    }
+                if !matches!(mode, Mode::LampGrid | Mode::Static { timer: false, .. })
+                    && (is_top && (r == 0 || top_left_ent_n.is_none()))
+                    && let Some(prev) = prev_ent_n
+                {
+                    wires.push([curr_ent_n, WIRE_R, prev, WIRE_R]); // horizontal timing wire
                 }
-                if is_top || prefer_horizontal_wires || was_top {
-                    if let Some(prev) = prev_ent_n {
-                        wires.push([curr_ent_n, WIRE_G, prev, WIRE_G]); // horizontal data wire
-                    }
+                if (is_top || prefer_horizontal_wires || was_top)
+                    && let Some(prev) = prev_ent_n
+                {
+                    wires.push([curr_ent_n, WIRE_G, prev, WIRE_G]); // horizontal data wire
                 }
-                if !did_connect_row || !prefer_horizontal_wires {
-                    if let Some(prev) = prev_ents_n[c] {
-                        wires.push([curr_ent_n, WIRE_G, prev, WIRE_G]); // vertical data wire
-                        did_connect_row = true;
-                    }
+                if (!did_connect_row || !prefer_horizontal_wires)
+                    && let Some(prev) = prev_ents_n[c]
+                {
+                    wires.push([curr_ent_n, WIRE_G, prev, WIRE_G]); // vertical data wire
+                    did_connect_row = true;
                 }
                 was_top = is_top;
             }

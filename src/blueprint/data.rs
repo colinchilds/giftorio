@@ -2,13 +2,26 @@ use crate::blueprint::models::*;
 use std::{cell::RefCell, sync::Arc};
 
 thread_local! {
-    pub static SIGNAL_DATA: RefCell<Option<SignalData>> = RefCell::new(None);
+    pub static PROTOTYPE_DATA: RefCell<Option<PrototypeData>> = const { RefCell::new(None) };
 }
 
-#[derive(serde::Deserialize)]
-pub struct SignalData {
+#[derive(serde::Deserialize, Clone)]
+pub struct ElectricPoleSupplyAreaDistancePrototypeData {
+    pub quality: Arc<str>,
+    pub supply_area_distance: f64,
+}
+#[derive(serde::Deserialize, Clone)]
+pub struct ElectricPolePrototypeData {
+    pub name: Arc<str>,
+    pub supply_area_distances: Box<[ElectricPoleSupplyAreaDistancePrototypeData]>,
+    pub tile_width: i32,
+    pub tile_height: i32,
+}
+#[derive(serde::Deserialize, Clone)]
+pub struct PrototypeData {
     pub signals: Box<[Arc<SignalID>]>,
     pub qualities: Box<[Arc<str>]>,
+    pub electric_poles: Box<[ElectricPolePrototypeData]>,
 }
 
 /// Enhances the provided signals by associating quality levels based on DLC usage.
@@ -20,9 +33,8 @@ pub struct SignalData {
 /// # Returns
 ///
 /// A new vector of signal JSON objects with added quality attributes.
-pub fn load_signal_data(data_json: &[u8]) {
-    let data: SignalData = serde_json::from_slice(data_json).unwrap();
-
+pub fn load_data(data_json: &[u8]) {
+    let mut data: PrototypeData = serde_json::from_slice(data_json).unwrap();
     let mut sig_types: Vec<Arc<str>> = Vec::new(); // Allow "type" field to reference the same strings
     let mut signals: Vec<Arc<SignalID>> =
         Vec::with_capacity(data.signals.len() * data.qualities.len());
@@ -50,9 +62,7 @@ pub fn load_signal_data(data_json: &[u8]) {
             }));
         }
     }
+    data.signals = signals.into_boxed_slice();
 
-    SIGNAL_DATA.replace(Some(SignalData {
-        qualities: data.qualities,
-        signals: signals.into_boxed_slice(),
-    }));
+    PROTOTYPE_DATA.replace(Some(data));
 }

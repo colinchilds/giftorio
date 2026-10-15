@@ -1,12 +1,12 @@
 pub mod blueprint;
-mod combinator;
+pub mod combinator;
 mod constants;
+pub mod data;
 mod dvec2_xy;
 pub mod encoder;
 mod lamp;
 mod macros;
 pub mod models;
 mod power_pole;
-pub mod signals;
 mod timer;
 mod util;

@@ -1,10 +1,10 @@
 use crate::blueprint::models::{ComparatorString as CompStr, *};
 use crate::blueprint::{
-    combinator::*, constants::*, lamp::*, power_pole::*, signals::*, timer::*, util::*,
+    combinator::*, constants::*, data::*, lamp::*, power_pole::*, timer::*, util::*,
 };
 use crate::image_processing::FrameData;
 use crate::progress::set_progress;
-use glam::{dvec2, uvec2, UVec2};
+use glam::{UVec2, dvec2, uvec2};
 use std::{io, sync::Arc};
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 
@@ -86,17 +86,16 @@ impl<'a> BlueprintGenerator<'a> {
             _ => 0,
         };
         let mut frame_info: Option<FrameInfo> = None;
-        let frame_dim: UVec2;
+        let dim: UVec2;
 
         if let Some(mut frame_data) = data {
             let n_scaled_frames = frame_data.total_frames() * if time_comp_win > 0 { 2 } else { 1 };
             let frames_per_cb = if gray_bits > 0 { 32 / gray_bits } else { 1 };
-            let n_buf_frames = if time_comp_win > 0 {
-                (time_comp_win * args.target_fps).div_ceil(1000 * frames_per_cb)
-            } else {
-                1
+            let n_buf_frames = match time_comp_win {
+                w if w > 0 => (w * args.target_fps).div_ceil(1000 * frames_per_cb),
+                _ => 1,
             };
-            frame_dim = frame_data.dimensions();
+            dim = frame_data.dimensions();
             frame_info = Some(FrameInfo {
                 curr_frame: frame_data.next().transpose()?.unwrap(),
                 frame_data,
@@ -112,46 +111,46 @@ impl<'a> BlueprintGenerator<'a> {
         } else {
             let w = args.custom_width.expect("Must have width or frame data.");
             let h = args.custom_height.expect("Must have height or frame data.");
-            frame_dim = uvec2(w, h);
+            dim = uvec2(w, h);
         }
         let use_const_cbs = matches!(args.mode, Mode::Static { const_cb: true, .. });
-        let max_lamp_cols_per_grp = if matches!(args.mode, Mode::Static { combs: false, .. }) {
-            frame_dim.x
-        } else {
+        let max_lamp_cols_per_grp = match args.mode {
+            Mode::Static { combs: false, .. } => dim.x,
             // Constant combinators can only hold up to 1000 signals
-            ((signals.len() as u32).min(if use_const_cbs { 1000 } else { u32::MAX }) / frame_dim.y)
-                .min(args.max_group_size.unwrap_or(frame_dim.x))
+            _ => ((signals.len() as u32).min(if use_const_cbs { 1000 } else { u32::MAX }) / dim.y)
+                .min(args.max_group_size.unwrap_or(dim.x)),
         };
         if max_lamp_cols_per_grp < 1 {
             return Err(JsValue::from_str(
                 "Not enough signals for even one lamp column!",
             ));
         }
-        let n_groups = frame_dim.x.div_ceil(max_lamp_cols_per_grp);
+        let n_groups = dim.x.div_ceil(max_lamp_cols_per_grp);
 
         if let Some(frame_info) = frame_info.as_mut() {
-            frame_info.patch_states = (0..n_groups)
-                .map(|_| GroupPatchState {
-                    chunk_i: 0,
-                    comb_i: 0,
-                    frame_buf: Vec::with_capacity(frame_info.frames_per_cb as usize),
-                    sig_buf: Vec::with_capacity(frame_info.n_buf_frames as usize),
-                })
-                .collect();
+            let states_iter = (0..n_groups).map(|_| GroupPatchState {
+                chunk_i: 0,
+                comb_i: 0,
+                frame_buf: Vec::with_capacity(frame_info.frames_per_cb as usize),
+                sig_buf: Vec::with_capacity(frame_info.n_buf_frames as usize),
+            });
+            frame_info.patch_states = states_iter.collect();
         }
 
         Ok(Self {
             args,
             frame_info,
-            entity_data: EntityData {
-                ents: Vec::new(),
-                wires: Vec::new(),
-                next_ent_n: 0u32,
+            entity_data: const {
+                EntityData {
+                    ents: Vec::new(),
+                    wires: Vec::new(),
+                    next_ent_n: 0u32,
+                }
             },
-            dim: frame_dim,
+            dim,
             max_cols_per_grp: max_lamp_cols_per_grp,
             n_groups,
-            occupied: PowerPoleOccupied::new(dvec2(0.0, -(args.lamp_margin_y as f64)), &args),
+            occupied: PowerPoleOccupied::new(dvec2(0.0, -(args.lamp_margin_y as f64)), &args)?,
             should_generate_cbs: !matches!(
                 args.mode,
                 Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid
@@ -197,7 +196,7 @@ impl<'a> BlueprintGenerator<'a> {
     }
 
     fn get_signal_data(args: &BlueprintArgs) -> Box<[Arc<SignalID>]> {
-        let mut signals = SIGNAL_DATA.with_borrow(|v| {
+        let mut signals = PROTOTYPE_DATA.with_borrow(|v| {
             let signals = &v.as_ref().expect("No signal data loaded yet!").signals;
             if matches!(
                 args.mode,
@@ -293,11 +292,12 @@ impl<'a> BlueprintGenerator<'a> {
                 BlueprintState::Entities => write_to(writer, b",\"entities\":[")?,
                 BlueprintState::Wires => {
                     // Set description of constant combinator
-                    if let Some(incrementer) = self.entity_data.ents.get(0) {
-                        if incrementer.has_tag("incrementer".to_owned()) {
-                            let desc = &self.get_description();
-                            self.entity_data.ents[0] = incrementer.clone().with_description(desc);
-                        }
+                    if true
+                        && let Some(incrementer) = self.entity_data.ents.get(0)
+                        && incrementer.has_tag("incrementer".to_owned())
+                    {
+                        let desc = &self.get_description();
+                        self.entity_data.ents[0] = incrementer.clone().with_description(desc);
                     }
 
                     for en in self.entity_data.ents.iter() {
@@ -476,10 +476,10 @@ impl<'a> BlueprintGenerator<'a> {
             }
 
             // Connect previous lamps together
-            if let Some(prev) = prev_top_right_lamp_ent_n {
-                if let Some(top_left_lamp_ent_n) = top_left_lamp_ent_n {
-                    grp_lamp_wires.push([top_left_lamp_ent_n, WIRE_R, prev, WIRE_R]);
-                }
+            if let Some(prev_right) = prev_top_right_lamp_ent_n
+                && let Some(prev_left) = top_left_lamp_ent_n
+            {
+                grp_lamp_wires.push([prev_left, WIRE_R, prev_right, WIRE_R]);
             }
             prev_top_right_lamp_ent_n = top_right_lamp_ent_n;
 

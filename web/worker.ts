@@ -1,12 +1,23 @@
-import { SignalPreset } from "@/data.jsx";
-import init, { init as prepare_wasm, run_blueprint, set_progress_callback, set_signal_data } from "../pkg/giftorio_wasm.js";
+import init, {
+  init as prepare_wasm,
+  run_blueprint,
+  set_comb_pos_data,
+  set_progress_callback,
+  set_signal_data,
+} from "../pkg/giftorio_wasm.js";
+
+const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
 
 async function main() {
-  const wasmReady = (async () => {
-    await init();
-    prepare_wasm();
-    set_progress_callback((percentage: number, status: string) => postMessage({ progress: { percentage, status } }));
-  })();
+  const wasmReadyPromises = {
+    init: (async () => {
+      await init();
+      prepare_wasm();
+      set_progress_callback((percentage: number, status: string) => postMessage({ progress: { percentage, status } }));
+    })(),
+    setCombPosData: null as Promise<void> | null,
+    setSignalData: Promise.resolve(),
+  };
 
   let writerReadyResolve: (() => void) | null = null;
   let writerReady: Promise<void> = Promise.resolve();
@@ -15,10 +26,10 @@ async function main() {
 
   const pendingWrites = new Map();
   let nextWriteId = 0;
-  let setSignalDataPromise: Promise<void> = Promise.resolve();
 
+  // Immediately add event listeners
   addEventListener("message", async (event) => {
-    await wasmReady;
+    await wasmReadyPromises.init;
 
     if (event.data.type === "chunkWritten") {
       const pending = pendingWrites.get(event.data.id);
@@ -30,20 +41,24 @@ async function main() {
       const { imageData, args } = event.data.generate;
       const { outputFormat } = args;
 
-      await setSignalDataPromise;
+      // Safe to do this now as we've already waited for init()
+      if (wasmReadyPromises.setCombPosData === null) {
+        wasmReadyPromises.setCombPosData = (async () => {
+          const data = await fetch("/assets/data/combinator-positions.json").then((v) => v.arrayBuffer());
+          await set_comb_pos_data(new Uint8Array(data));
+        })();
+      }
+
+      await wasmReadyPromises.setCombPosData;
+      await wasmReadyPromises.setSignalData;
 
       try {
         waitForWriterReady();
 
-        if (outputFormat === "blueprint") {
-          postMessage({ type: "start", filename: "blueprint.txt" });
-        } else if (outputFormat === "json") {
-          postMessage({ type: "start", filename: "blueprint.json" });
-        } else if (outputFormat === "rawCompressed") {
-          postMessage({ type: "start", filename: "blueprint.zlib" });
-        } else {
-          console.error("Unknown output format:", outputFormat);
-        }
+        const prefix = FILE_PREFIX_MAP[outputFormat as keyof typeof FILE_PREFIX_MAP];
+        if (!prefix) throw new Error(`Unknown output format: ${outputFormat}`);
+
+        postMessage({ type: "start", filename: `blueprint.${prefix}` });
 
         await writerReady;
 
@@ -59,9 +74,9 @@ async function main() {
       } catch (e) {
         postMessage({ error: e?.toString() ?? String(e) });
       }
-    } else if (event.data.signalPreset) {
-      const preset: SignalPreset = event.data.signalPreset;
-      setSignalDataPromise = set_signal_data(new TextEncoder().encode(JSON.stringify(preset)));
+    } else if (event.data.signalPresetRaw) {
+      const preset: Uint8Array = event.data.signalPresetRaw;
+      wasmReadyPromises.setSignalData = set_signal_data(preset);
     } else if (event.data.type === "writerReady") {
       writerReadyResolve?.();
       writerReadyResolve = null;

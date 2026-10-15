@@ -1,28 +1,14 @@
 import infoIcon from "@/assets/img/info.png";
 import { SelectOption } from "@/components/FactorioSelect";
-import { JSX } from "solid-js";
+import { For, JSX, Show } from "solid-js";
 
 export interface TooltipProps {
   name: string;
   tooltip?: JSX.Element;
   options?: (readonly [string, string | SelectOption])[];
-  splash?: string;
+  splash?: JSX.Element;
 }
 export default function Tooltip(props: TooltipProps) {
-  const { name, options } = props;
-  let hasOptionTip = false;
-
-  const optionsSection = options?.map(([_, v]) => {
-    if (typeof v === "string") return;
-    hasOptionTip = true;
-
-    return (
-      <li class="before:mr-3 before:content-['•'] text-tan-500">
-        <span class="font-semibold  text-cyan-500">{v.name}:</span> <span class="text-tan-500 font-semibold">{v.tooltip}</span>
-      </li>
-    );
-  });
-
   return (
     <>
       <img
@@ -57,13 +43,25 @@ export default function Tooltip(props: TooltipProps) {
         }}
       />
       <div class="tooltip" role="tooltip">
-        <div class="tooltip-header">{name}</div>
+        <div class="tooltip-header">{props.name}</div>
         {props.tooltip && <div class="text-white font-light">{props.tooltip}</div>}
-        {optionsSection && (
+        <Show when={props.options}>
           <div class="mt-2">
-            <ul class="list-none pl-2">{optionsSection}</ul>
+            <ul class="list-none pl-2">
+              <For each={props.options!}>
+                {([_, v]) => {
+                  if (typeof v === "string") return;
+                  return (
+                    <li class="before:mr-3 before:content-['•'] text-tan-500">
+                      <span class="font-semibold  text-cyan-500">{v.name}:</span>{" "}
+                      <span class="text-tan-500 font-semibold">{v.tooltip}</span>
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
           </div>
-        )}
+        </Show>
         {props.splash && <div class="text-tan-500 mt-5 opacity-60">{props.splash}</div>}
       </div>
     </>
