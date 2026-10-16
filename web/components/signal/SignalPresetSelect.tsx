@@ -3,7 +3,7 @@ import { FactorioToastsApi } from "@/components/FactorioToasts";
 import FactorioTooltip from "@/components/FactorioTooltip";
 import { CURR_SIGNAL_PRESET_KEY, SignalPreset } from "@/data";
 import { addSignalPreset, DEFAULT_SIGNAL_PRESET_KEYS, getSignalPreset, getSignalPresetNames, removeSignalPreset } from "@/db";
-import { createEffect, createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SignalFormExtraction, { SignalFormExtractionApi } from "./SignalFormExtraction";
 
@@ -24,6 +24,10 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
     return preset;
   });
   const [signalPresetKeys, { refetch: refetchSignalPresetKeys }] = createResource(getSignalPresetNames);
+  const getAllSignalPresetKeys = createMemo(() => {
+    console.log("calcultaing keys", signalPresetKeys());
+    return [...(signalPresetKeys() ?? []), ...DEFAULT_SIGNAL_PRESET_KEYS];
+  });
 
   let refDialogDelete: FactorioDialogDeleteApi = null!;
   let refFormExtraction: SignalFormExtractionApi = null!;
@@ -40,9 +44,9 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
         ref={(api) => (refDialogDelete = api)}
         onConfirm={() => {
           removeSignalPreset(currPresetKey()!).then(async () => {
+            setCurrPresetKey(DEFAULT_SIGNAL_PRESET_KEYS[0]);
             await refetchSignalPresetKeys();
             props.showToast(`Preset "${currPresetKey()}" removed!`);
-            setCurrPresetKey(DEFAULT_SIGNAL_PRESET_KEYS[0]);
           });
         }}
       >
@@ -92,19 +96,18 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
             <SignalFormExtraction
               ref={(api) => (refFormExtraction = api)}
               onSubmit={(key, preset) => {
-                addSignalPreset(key, preset).then(async () => {
-                  await refetchSignalPresetKeys();
-
-                  setCurrPreset(preset);
-                  setCurrPresetRaw(new TextEncoder().encode(JSON.stringify(preset)));
-                  setCurrPresetKey(key);
-
-                  props.showToast(`Preset "${key}" created!`);
-                  refFormExtraction.hide();
-                });
+                addSignalPreset(key, preset)
+                  .then(refetchSignalPresetKeys)
+                  .then(() => {
+                    setCurrPreset(preset);
+                    setCurrPresetRaw(new TextEncoder().encode(JSON.stringify(preset)));
+                    setCurrPresetKey(key);
+                    props.showToast(`Preset "${key}" created!`);
+                    refFormExtraction.hide();
+                  });
               }}
               showToast={props.showToast}
-              signalPresetKeys={[...(signalPresetKeys() ?? []), ...DEFAULT_SIGNAL_PRESET_KEYS]}
+              signalPresetKeys={getAllSignalPresetKeys()}
             />
           </Portal>
           <div class="flex gap-1">

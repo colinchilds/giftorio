@@ -578,7 +578,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                 </>
               )}
 
-              <SignalPresetSelect {...{ setSignalPreset, setSignalPresetRaw, showToast }} />
+              <SignalPresetSelect setSignalPreset={setSignalPreset} setSignalPresetRaw={setSignalPresetRaw} showToast={showToast} />
               <For each={["grayscaleBits", "outputFormat"]}>
                 {(k) => <FormElement key={k} value={FORM_ELEMENTS[k as keyof typeof FORM_ELEMENTS]} />}
               </For>
