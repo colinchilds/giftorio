@@ -44,16 +44,7 @@ export default function Extraction({ showToast, ...props }: SignalFormExtraction
       <KeyboardListener keys={["Escape"]} onKeyDown={() => hide()} />
       <div class="backdrop flex flex-col items-center justify-center">
         <Show when={status() === "copyCommand"}>
-          <form
-            class="panel flex flex-col min-h-md h-[75vh] w-[50vw]"
-            method="dialog"
-            onSubmit={() => {
-              // const { name, description } = formData;
-              // const preset = { ...(currData() as SignalData), description };
-              setStatus("pasteSignals");
-              // props.onSubmit(name, preset);
-            }}
-          >
+          <form class="panel flex flex-col min-h-md h-[75vh] w-[50vw]" method="dialog" onSubmit={() => setStatus("pasteSignals")}>
             <EventListener event="copy" handler={() => showToast("Copied to clipboard!")} />
             <KeyboardListener keys={["Enter", "e", "E"]} onKeyDown={() => setStatus("pasteSignals")} />
             <div class="font-semibold mb-5 text-tan-500 text-xl">Create Signal Preset</div>

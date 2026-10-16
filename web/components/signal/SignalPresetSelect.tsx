@@ -39,7 +39,8 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
       <FactorioDialogDelete
         ref={(api) => (refDialogDelete = api)}
         onConfirm={() => {
-          removeSignalPreset(currPresetKey()!).then(() => {
+          removeSignalPreset(currPresetKey()!).then(async () => {
+            await refetchSignalPresetKeys();
             props.showToast(`Preset "${currPresetKey()}" removed!`);
             setCurrPresetKey(DEFAULT_SIGNAL_PRESET_KEYS[0]);
           });

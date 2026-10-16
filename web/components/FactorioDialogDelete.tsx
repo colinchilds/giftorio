@@ -45,7 +45,14 @@ export default function FactorioDialogDelete(props: FactorioDialogDeleteProps) {
           >
             {props.cancelTitle ?? "Cancel"}
           </button>
-          <button class="button button-red min-w-[128px]" type="button" onClick={() => props.onConfirm?.()}>
+          <button
+            class="button button-red min-w-[128px]"
+            type="button"
+            onClick={() => {
+              props.onConfirm?.();
+              (props.autoclose ?? true) && hide();
+            }}
+          >
             {props.deleteTitle ?? "Delete"}
           </button>
         </div>
