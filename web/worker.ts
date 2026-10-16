@@ -5,6 +5,7 @@ import init, {
   set_progress_callback,
   set_signal_data,
 } from "../pkg/giftorio_wasm.js";
+import { BASE_URL } from "./utils.js";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
 
@@ -44,7 +45,7 @@ async function main() {
       // Safe to do this now as we've already waited for init()
       if (wasmReadyPromises.setCombPosData === null) {
         wasmReadyPromises.setCombPosData = (async () => {
-          const data = await fetch("/assets/data/combinator-positions.json").then((v) => v.arrayBuffer());
+          const data = await fetch(`${BASE_URL}assets/data/combinator-positions.json`).then((v) => v.arrayBuffer());
           await set_comb_pos_data(new Uint8Array(data));
         })();
       }

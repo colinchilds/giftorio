@@ -3,7 +3,7 @@ import { FactorioToastsApi } from "@/components/FactorioToasts";
 import FactorioTooltip from "@/components/FactorioTooltip";
 import KeyboardListener from "@/components/KeyboardListener";
 import { SignalData, SignalPreset, validateSignalData } from "@/data";
-import { useErrM } from "@/utils";
+import { BASE_URL, useErrM } from "@/utils";
 import { createResource, createSignal, onMount, Show, Suspense } from "solid-js";
 import { createStore } from "solid-js/store";
 
@@ -25,7 +25,7 @@ export default function Extraction({ showToast, ...props }: SignalFormExtraction
   const [currData, setCurrData] = createSignal<SignalData | null>(null); // Current data we're editing
   const [status, setStatus] = createSignal<ExtractionStatus | null>(null);
   const [formData, setFormData] = createStore(DEFAULT_FORM_DATA);
-  const [codeCommand] = createResource(() => fetch("/assets/data/generate-signals.lua").then((v) => v.text()));
+  const [codeCommand] = createResource(() => fetch(`${BASE_URL}assets/data/generate-signals.lua`).then((v) => v.text()));
   let refDialog: HTMLDialogElement = null!;
 
   function show() {

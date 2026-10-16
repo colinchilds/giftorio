@@ -1,4 +1,5 @@
 import { SignalPreset } from "@/data";
+import { BASE_URL } from "@/utils";
 import { gunzipSync, gzipSync } from "fflate";
 
 const DB_VERSION = 2;
@@ -8,8 +9,8 @@ const FILE_STORAGE_KEY = "file-storage";
 const SIGNAL_PRESETS_STORAGE_KEY = "signal-data-presets";
 
 const PRESET_MAP = {
-  "compat-v2.0.77": { url: "/assets/data/presets/compat-v2.0.77.json" },
-  "dlc-v2.0.77": { url: "/assets/data/presets/space-age-v2.0.77.json" },
+  "compat-v2.0.77": { url: `${BASE_URL}assets/data/presets/compat-v2.0.77.json` },
+  "dlc-v2.0.77": { url: `${BASE_URL}assets/data/presets/space-age-v2.0.77.json` },
 } as const;
 export const DEFAULT_SIGNAL_PRESET_KEYS = Object.keys(PRESET_MAP);
 
@@ -70,7 +71,6 @@ export async function getSignalPreset(name: string): Promise<{ preset: SignalPre
   if (name in PRESET_MAP) {
     const { url } = PRESET_MAP[name as keyof typeof PRESET_MAP];
     const req = await fetch(url);
-
     return {
       preset: await req.clone().json(),
       raw: new Uint8Array(await req.arrayBuffer()),

@@ -108,3 +108,5 @@ export function kebabCaseToSentenceCase<S extends string>(str: S): SentenceCase<
 // i was bored
 type KebabCaseToSentenceCase<S extends string> = S extends `${infer First}-${infer Rest}` ? `${First} ${KebabCaseToSentenceCase<Rest>}` : S;
 type SentenceCase<S extends string> = S extends `${infer First}${infer Rest}` ? `${Uppercase<First>}${KebabCaseToSentenceCase<Rest>}` : S;
+
+export const { BASE_URL } = import.meta.env;
