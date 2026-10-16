@@ -117,7 +117,8 @@ impl<'a> BlueprintGenerator<'a> {
         let max_lamp_cols_per_grp = match args.mode {
             Mode::Static { combs: false, .. } => dim.x,
             // Constant combinators can only hold up to 1000 signals
-            _ => ((signals.len() as u32).min(if use_const_cbs { 1000 } else { u32::MAX }) / dim.y)
+            _ => ((signals.len() as u32).min(if use_const_cbs { 255_000 } else { u32::MAX })
+                / dim.y)
                 .min(args.max_group_size.unwrap_or(dim.x)),
         };
         if max_lamp_cols_per_grp < 1 {
@@ -528,21 +529,22 @@ impl<'a> BlueprintGenerator<'a> {
 
         let mk_cb = |start: u32, end: u32, outputs: Vec<DeciderCombinatorOutput>| {
             if matches!(mode, Mode::Static { const_cb: true, .. }) {
-                let filters = outputs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, o)| BlueprintLogisticFilter {
-                        index: i as u16 + 1,
+                let mut sections: Vec<LogisticSection> = Vec::new();
+                for (i, f) in outputs.chunks(1000).enumerate() {
+                    let filters = f.iter().enumerate().map(|(j, o)| BlueprintLogisticFilter {
+                        index: j as u16 + 1,
                         type_: Arc::clone(&o.signal.type_),
                         name: Arc::clone(&o.signal.name),
                         quality: o.signal.quality.clone(),
                         comparator: Some(ComparatorString::Eq),
                         count: o.constant,
                     });
-                let filters = filters.collect();
-                let sections = LogisticSections {
-                    sections: vec![LogisticSection { index: 1, filters }],
-                };
+                    let filters = filters.collect::<Vec<_>>();
+                    let index = i as u8 + 1;
+
+                    sections.push(LogisticSection { index, filters });
+                }
+                let sections = LogisticSections { sections };
                 ControlBehavior::ConstantCombinatorBlueprintControlBehavior { sections }
             } else {
                 ControlBehavior::decider(DeciderCombinatorParameters {
