@@ -14,7 +14,7 @@ vanilla Factorio version 2.0 and the Space Age DLC.
 - Configurable power pole qualities to reduce dead pixels
 - Attempts to maintain animation timing similar to the original GIF
 - Supports different power pole qualities when using the Space Age DLC
-- Supports using small and medium power poles as well as substations
+- Supports using small, medium, and large power poles as well as substations
 
 ## Additional Features (in 2.0)
 
