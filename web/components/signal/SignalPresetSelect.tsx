@@ -22,6 +22,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
 
     const { preset, raw } = await getSignalPreset(k);
     setCurrPresetRaw(raw);
+    console.log(preset);
     return preset;
   });
   const [signalPresetKeys, { refetch: refetchSignalPresetKeys }] = createResource(getSignalPresetNames);

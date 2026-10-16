@@ -145,7 +145,8 @@ export default function Extraction({ showToast, ...props }: SignalFormExtraction
         <Show when={status() === "metadata"}>
           <form
             class="panel flex flex-col min-h-md h-[75vh] w-[50vw]"
-            onSubmit={() => {
+            onSubmit={(e) => {
+              e.preventDefault();
               const { name, description } = formData;
               const preset = { ...(currData() as SignalData), description };
               props.onSubmit(name, preset);

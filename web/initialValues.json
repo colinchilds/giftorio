@@ -9,7 +9,7 @@
   "imageRotation": "deg270",
   "includePowerPoles": true,
   "maxGroupSize": null,
-  "maxSize": 50,
+  "maxSize": 100,
   "mode": "full",
   "outputFormat": "blueprint",
   "powerPoleName": "substation",

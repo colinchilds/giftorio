@@ -84,8 +84,10 @@ export async function getSignalPreset(name: string): Promise<{ preset: SignalPre
       const req = tx.objectStore(SIGNAL_PRESETS_STORAGE_KEY).get(name);
       req.onsuccess = () => {
         try {
-          const result = JSON.parse(new TextDecoder().decode(gunzipSync(req.result)));
-          resolve(result);
+          const raw = gunzipSync(req.result);
+          const preset: SignalPreset = JSON.parse(new TextDecoder().decode(raw));
+
+          resolve({ raw, preset });
         } catch (e) {
           reject(e);
         }
