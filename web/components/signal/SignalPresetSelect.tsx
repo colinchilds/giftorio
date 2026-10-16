@@ -1,6 +1,6 @@
-import DialogDelete, { DialogDeleteApi } from "@/components/DialogDelete";
-import { ToastsApi } from "@/components/Toasts";
-import Tooltip from "@/components/Tooltip";
+import FactorioDialogDelete, { FactorioDialogDeleteApi } from "@/components/FactorioDialogDelete";
+import { FactorioToastsApi } from "@/components/FactorioToasts";
+import FactorioTooltip from "@/components/FactorioTooltip";
 import { CURR_SIGNAL_PRESET_KEY, SignalPreset } from "@/data";
 import { addSignalPreset, DEFAULT_SIGNAL_PRESET_KEYS, getSignalPreset, getSignalPresetNames, removeSignalPreset } from "@/db";
 import { createEffect, createResource, createSignal, For, onMount, Show } from "solid-js";
@@ -10,7 +10,7 @@ import SignalFormExtraction, { SignalFormExtractionApi } from "./SignalFormExtra
 export interface SignalPresetSelectProps {
   setSignalPreset(v: SignalPreset): void;
   setSignalPresetRaw(v: Uint8Array): void;
-  showToast: ToastsApi["showToast"];
+  showToast: FactorioToastsApi["showToast"];
 }
 export default function SignalPresetSelect(props: SignalPresetSelectProps) {
   const PREFIX = "signal-preset-";
@@ -26,7 +26,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
   });
   const [signalPresetKeys, { refetch: refetchSignalPresetKeys }] = createResource(getSignalPresetNames);
 
-  let refDialogDelete: DialogDeleteApi = null!;
+  let refDialogDelete: FactorioDialogDeleteApi = null!;
   let refFormExtraction: SignalFormExtractionApi = null!;
 
   onMount(() => setCurrPresetKey(localStorage.getItem(CURR_SIGNAL_PRESET_KEY) ?? DEFAULT_SIGNAL_PRESET_KEYS[0]));
@@ -37,7 +37,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
 
   return (
     <div class="mt-5 mb-1 flex flex-col items-start gap-1 justify-between w-full">
-      <DialogDelete
+      <FactorioDialogDelete
         ref={(api) => (refDialogDelete = api)}
         onConfirm={() => {
           removeSignalPreset(currPresetKey()!).then(() => {
@@ -48,13 +48,13 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
       >
         <h2 class="text-tan-500">Delete configuration?</h2>
         <p class="text-white text-center ">This will permanently delete the configuration "{currPresetKey()}". This cannot be undone.</p>
-      </DialogDelete>
+      </FactorioDialogDelete>
 
       <div class="flex items-center factorio-form-element justify-between w-full">
         <label class="text-white-500" for="signalPreset">
           Signal Preset
           <Show when={currPreset()}>
-            <Tooltip
+            <FactorioTooltip
               tooltip={
                 <>
                   <i>{currPreset()!.description}</i>

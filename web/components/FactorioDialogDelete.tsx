@@ -1,14 +1,14 @@
 import { JSX } from "solid-js/jsx-runtime";
 
-export interface DialogDeleteApi {
+export interface FactorioDialogDeleteApi {
   show(): void;
   hide(): void;
 }
 
-export interface DialogDeleteProps {
+export interface FactorioDialogDeleteProps {
   onCancel?(): void;
   onConfirm?(): void;
-  ref(api: DialogDeleteApi): void;
+  ref(api: FactorioDialogDeleteApi): void;
 
   autoclose?: boolean;
   cancelTitle?: string;
@@ -17,7 +17,7 @@ export interface DialogDeleteProps {
   children: JSX.Element;
 }
 
-export default function DialogDelete(props: DialogDeleteProps) {
+export default function FactorioDialogDelete(props: FactorioDialogDeleteProps) {
   let refDialog: HTMLDialogElement = null!;
 
   function show() {

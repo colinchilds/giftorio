@@ -1,4 +1,4 @@
-import Tooltip from "@/components/Tooltip";
+import FactorioTooltip from "@/components/FactorioTooltip";
 import { SignalData } from "@/data";
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { SignalSelector } from "./SignalSelector";
@@ -42,7 +42,7 @@ export default function SignalSelectors(props: SignalSelectorsProps) {
             <div class="flex flex-col factorio-form-element justify-between w-full">
               <label class="flex items-center text-white-500" for="maxsize">
                 <div class="text-tan-500 font-semibold">Signal {key.toUpperCase()}</div>
-                <Tooltip
+                <FactorioTooltip
                   name={`Signal ${key.toUpperCase()}`}
                   tooltip="Used to internally time the blueprint. All timing signals must be unique."
                   splash="Reserved for timing wires; data combinators will not use these signals."

@@ -1,5 +1,5 @@
 import FactorioSelect from "@/components/FactorioSelect";
-import Tooltip from "@/components/Tooltip";
+import FactorioTooltip from "@/components/FactorioTooltip";
 import { SignalData } from "@/data";
 import { useErrM } from "@/utils";
 import { createEffect, createSignal } from "solid-js";
@@ -27,7 +27,7 @@ export function SignalSelector(props: SignalSelectorProps) {
       <div class="factorio-form-element flex items-center justify-between gap-5">
         <label class="block text-white-500">
           <span>Name</span>
-          <Tooltip name="Name" tooltip="The name of the signal." />
+          <FactorioTooltip name="Name" tooltip="The name of the signal." />
         </label>
         <input
           class="py-1 flex-1"

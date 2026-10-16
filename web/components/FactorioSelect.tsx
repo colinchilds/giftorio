@@ -1,4 +1,4 @@
-import Tooltip from "@/components/Tooltip";
+import FactorioTooltip from "@/components/FactorioTooltip";
 import { FormElementValue } from "@/types";
 import { createEffect, createSignal, For, JSX, Show } from "solid-js";
 
@@ -49,7 +49,7 @@ export default function FactorioSelect(props: FactorioSelectProps) {
       <Show when={props.name}>
         <label class="block text-white-500" for={props.key}>
           <span classList={{ "opacity-50": props.disabled }}>{props.name}</span>
-          <Tooltip name={props.name!} tooltip={props.tooltip} splash={props.splash} options={props.options} />
+          <FactorioTooltip name={props.name!} tooltip={props.tooltip} splash={props.splash} options={props.options} />
         </label>
       </Show>
       <select

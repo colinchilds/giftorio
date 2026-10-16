@@ -1,7 +1,7 @@
 import EventListener from "@/components/EventListener";
+import { FactorioToastsApi } from "@/components/FactorioToasts";
+import FactorioTooltip from "@/components/FactorioTooltip";
 import KeyboardListener from "@/components/KeyboardListener";
-import { ToastsApi } from "@/components/Toasts";
-import Tooltip from "@/components/Tooltip";
 import { SignalData, SignalPreset, validateSignalData } from "@/data";
 import { useErrM } from "@/utils";
 import { createResource, createSignal, onMount, Show, Suspense } from "solid-js";
@@ -14,7 +14,7 @@ export interface SignalFormExtractionApi {
 export interface SignalFormExtractionProps {
   ref(api: SignalFormExtractionApi): void;
   onSubmit(key: string, v: SignalPreset): void;
-  showToast: ToastsApi["showToast"];
+  showToast: FactorioToastsApi["showToast"];
   signalPresetKeys: string[];
 }
 export default function Extraction({ showToast, ...props }: SignalFormExtractionProps) {
@@ -160,7 +160,7 @@ export default function Extraction({ showToast, ...props }: SignalFormExtraction
               <div class="flex flex-row justify-between gap-5">
                 <label class="text-white-500" for="presetName">
                   Name
-                  <Tooltip name="Preset Name" splash="Must be unique!" />
+                  <FactorioTooltip name="Preset Name" splash="Must be unique!" />
                 </label>
                 <input
                   class="bg-gray-100 focus:bg-tan-500 flex-grow px-3 py-2 border rounded focus:outline-none focus:ring"
@@ -186,7 +186,7 @@ export default function Extraction({ showToast, ...props }: SignalFormExtraction
               <div class="flex flex-row justify-between gap-5">
                 <label class="text-white-500" for="presetName">
                   Description
-                  <Tooltip name="Description" tooltip="(Optional) A description of the preset." />
+                  <FactorioTooltip name="Description" tooltip="(Optional) A description of the preset." />
                 </label>
                 <input
                   class="bg-gray-100 focus:bg-tan-500 flex-grow px-3 py-2 border rounded focus:outline-none focus:ring"

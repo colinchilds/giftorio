@@ -1,13 +1,13 @@
 import getAnimationInfo, { AnimationInfo, getRawImageData, UnsupportedAnimationError } from "@/animationInfo";
 import Background, { BackgroundApi } from "@/components/Background";
-import DialogDelete, { DialogDeleteApi } from "@/components/DialogDelete";
+import FactorioDialogDelete, { FactorioDialogDeleteApi } from "@/components/FactorioDialogDelete";
 import FactorioSelect, { SelectOption } from "@/components/FactorioSelect";
 import FactorioSlider from "@/components/FactorioSlider";
+import FactorioToasts, { FactorioToastsApi } from "@/components/FactorioToasts";
+import FactorioTooltip from "@/components/FactorioTooltip";
 import KeyboardListener from "@/components/KeyboardListener";
 import SignalPresetSelect from "@/components/signal/SignalPresetSelect";
 import SignalSelectors, { TimingSignals } from "@/components/signal/SignalSelectors";
-import Toasts, { ToastsApi } from "@/components/Toasts";
-import Tooltip from "@/components/Tooltip";
 import { FORM_ELEMENTS, getInitialValues, LAST_FILE_KEY, setInitialValues, SHOW_ADVANCED_KEY, SignalPreset } from "@/data";
 import { loadFileDB, saveFileDB } from "@/db";
 import { FormElementValue } from "@/types";
@@ -42,9 +42,9 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
 
   let refBackground: BackgroundApi = null!;
-  let refDialogReset: DialogDeleteApi = null!;
+  let refDialogReset: FactorioDialogDeleteApi = null!;
   let refFormContainer: HTMLDivElement = null!;
-  let refToasts: ToastsApi = null!;
+  let refToasts: FactorioToastsApi = null!;
 
   function showOpenStreamingWindowWarning() {
     setShowStreamingWindowWarning(true);
@@ -65,7 +65,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     submitButton: HTMLButtonElement;
   } = {} as any;
 
-  function showToast(...args: Parameters<ToastsApi["showToast"]>) {
+  function showToast(...args: Parameters<FactorioToastsApi["showToast"]>) {
     refToasts.showToast(...args);
   }
 
@@ -86,7 +86,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             <div class="checkbox"></div>
             <div class="ml-3 text-white-500">
               {name}
-              <Tooltip {...tooltipProps} />
+              <FactorioTooltip {...tooltipProps} />
             </div>
           </label>
         </div>
@@ -126,7 +126,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         <div class="mb-1 factorio-form-element" aria-disabled={value.disabled} classList={{ flex: compact }}>
           <label class="block text-white-500 mb-0 w-full">
             {name}
-            <Tooltip {...tooltipProps} />
+            <FactorioTooltip {...tooltipProps} />
           </label>
           <div class="items-center gap-3 w-full">
             <FactorioSlider
@@ -284,7 +284,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             powerPoleName: formData.powerPoleName,
             powerPoleQuality: formData.powerPoleQuality,
             resamplingFilter: `${formData.resamplingFilter}`,
-            rotation: +formData.rotation,
             signalCompression,
             signalSorting:
               formData.signalSorting === "auto" ? (formData.outputFormat === "json" ? "json" : "compression") : `${formData.signalSorting}`,
@@ -486,7 +485,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         </div>
       </div>
       <div class="flex flex-col items-center justify-start min-h-screen">
-        <Toasts ref={(api) => (refToasts = api)} />
+        <FactorioToasts ref={(api) => (refToasts = api)} />
         <hr class="h-[20vh]" />
         <div ref={refFormContainer!} class="panel-container flex">
           <div classList={{ hidden: isGenerating() }} class="panel form flex-shrink-0">
@@ -553,7 +552,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
               <div class="mt-5 flex items-center justify-between factorio-form-element" aria-disabled={formData.mode !== "full"}>
                 <label class="text-white-500" for="maxsize">
                   Max Size
-                  <Tooltip
+                  <FactorioTooltip
                     tooltip="Maximum size of the longest side (length or width) of the output image in tiles. Larger values create higher resolution blueprints but take longer to generate and import, and can negatively impact on game performance."
                     name="Max Size"
                     splash="Blueprint size increases x4 for a x2 increase in max size."
@@ -689,7 +688,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
               </button>
 
               <Portal>
-                <DialogDelete
+                <FactorioDialogDelete
                   ref={(api) => (refDialogReset = api)}
                   onConfirm={() => {
                     indexedDB
@@ -705,7 +704,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                   <div class="text-white-500 text-center">
                     This will remove all signal presets, configuration data, and reset all options back to their default values.
                   </div>
-                </DialogDelete>
+                </FactorioDialogDelete>
               </Portal>
             </div>
           </div>

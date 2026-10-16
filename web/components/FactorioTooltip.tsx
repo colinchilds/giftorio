@@ -2,13 +2,13 @@ import infoIcon from "@/assets/img/info.png";
 import { SelectOption } from "@/components/FactorioSelect";
 import { For, JSX, Show } from "solid-js";
 
-export interface TooltipProps {
+export interface FactorioTooltipProps {
   name: string;
   tooltip?: JSX.Element;
   options?: (readonly [string, string | SelectOption])[];
   splash?: JSX.Element;
 }
-export default function Tooltip(props: TooltipProps) {
+export default function FactorioTooltip(props: FactorioTooltipProps) {
   return (
     <>
       <img

@@ -1,21 +1,21 @@
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 
-export interface ToastArgs {
+export interface FactorioToastArgs {
   isError?: boolean;
 }
-export interface ToastsApi {
-  showToast(msg: string, args?: ToastArgs): void;
+export interface FactorioToastsApi {
+  showToast(msg: string, args?: FactorioToastArgs): void;
 }
-export interface ToastsProps {
-  ref(api: ToastsApi): void;
+export interface FactorioToastsProps {
+  ref(api: FactorioToastsApi): void;
 }
-export default function Toasts(props: ToastsProps) {
-  const [toasts, setToasts] = createSignal<Record<number, ToastArgs & { msg: string } & { x: number; y: number }>>({});
+export default function FactorioToasts(props: FactorioToastsProps) {
+  const [toasts, setToasts] = createSignal<Record<number, FactorioToastArgs & { msg: string } & { x: number; y: number }>>({});
 
   let nextToastId = 0;
   let mousePos = { x: 0, y: 0 };
 
-  function showToast(msg: string, args?: ToastArgs) {
+  function showToast(msg: string, args?: FactorioToastArgs) {
     const id = nextToastId++;
     setToasts((prev) => ({ ...prev, [id]: { msg, ...args, ...mousePos } }));
     setTimeout(() => {
