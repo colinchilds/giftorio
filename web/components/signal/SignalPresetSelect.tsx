@@ -5,6 +5,7 @@ import { CURR_SIGNAL_PRESET_KEY, SignalPreset } from "@/data";
 import { addSignalPreset, DEFAULT_SIGNAL_PRESET_KEYS, getSignalPreset, getSignalPresetNames, removeSignalPreset } from "@/db";
 import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import FactorioSelect from "../FactorioSelect";
 import SignalFormExtraction, { SignalFormExtractionApi } from "./SignalFormExtraction";
 
 export interface SignalPresetSelectProps {
@@ -24,13 +25,12 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
     return preset;
   });
   const [signalPresetKeys, { refetch: refetchSignalPresetKeys }] = createResource(getSignalPresetNames);
-  const getAllSignalPresetKeys = createMemo(() => {
-    console.log("calcultaing keys", signalPresetKeys());
-    return [...(signalPresetKeys() ?? []), ...DEFAULT_SIGNAL_PRESET_KEYS];
-  });
+  const getAllSignalPresetKeys = createMemo(() => [...(signalPresetKeys() ?? []), ...DEFAULT_SIGNAL_PRESET_KEYS]);
 
-  let refDialogDelete: FactorioDialogDeleteApi = null!;
-  let refFormExtraction: SignalFormExtractionApi = null!;
+  let refs = {
+    dialogDelete: null! as FactorioDialogDeleteApi,
+    formExtraction: null! as SignalFormExtractionApi,
+  };
 
   onMount(() => setCurrPresetKey(localStorage.getItem(CURR_SIGNAL_PRESET_KEY) ?? DEFAULT_SIGNAL_PRESET_KEYS[0]));
 
@@ -41,12 +41,14 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
   return (
     <div class="mt-5 mb-1 flex flex-col items-start gap-1 justify-between w-full">
       <FactorioDialogDelete
-        ref={(api) => (refDialogDelete = api)}
+        ref={(api) => (refs.dialogDelete = api)}
         onConfirm={() => {
           removeSignalPreset(currPresetKey()!).then(async () => {
+            const deletedKey = currPresetKey()!;
+
             setCurrPresetKey(DEFAULT_SIGNAL_PRESET_KEYS[0]);
             await refetchSignalPresetKeys();
-            props.showToast(`Preset "${currPresetKey()}" removed!`);
+            props.showToast(`Preset "${deletedKey}" removed!`);
           });
         }}
       >
@@ -59,26 +61,32 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
           Signal Preset
           <Show when={currPreset()}>
             <FactorioTooltip
-              tooltip={
-                <>
-                  <i>{currPreset()!.description}</i>
-                  <hr class="my-2" />
-                  <div>
+              tooltip={(() => {
+                const { description, signals: sigs, qualities: quals, electric_poles: poles } = currPreset()!;
+                return (
+                  <>
+                    <i class="tracking-wide">{description}</i>
+                    <hr class="my-2" />
                     <div>
-                      <span class="text-cyan-500 font-semibold">Total Signals:</span>{" "}
-                      <span class="text-tan-500 font-semibold">{currPreset()!.signals.length}</span>{" "}
-                      <span>({currPreset()!.signals.length * Math.max(currPreset()!.qualities.length, 1)} unique)</span>
+                      <div>
+                        <span class="text-cyan-500 font-semibold">Total Signals:</span>{" "}
+                        <span class="text-tan-500 font-semibold">{currPreset()!.signals.length}</span>{" "}
+                        <span>({sigs.length * Math.max(quals.length, 1)} unique)</span>
+                      </div>
+                      <div>
+                        <span class="text-cyan-500 font-semibold">Total Qualities:</span>{" "}
+                        <span class="text-tan-500 font-semibold">
+                          {quals.length} {quals.length && <> ({currPreset()!.qualities.join(", ")})</>}
+                        </span>
+                      </div>
+                      <div>
+                        <span class="text-cyan-500 font-semibold">Power Poles:</span>{" "}
+                        <span class="text-tan-500 font-semibold">{poles.length}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span class="text-cyan-500 font-semibold">Total Qualities:</span>{" "}
-                      <span class="text-tan-500 font-semibold">
-                        {currPreset()!.qualities.length}
-                        {currPreset()!.qualities.length && <> ({currPreset()!.qualities.join(", ")})</>}
-                      </span>
-                    </div>
-                  </div>
-                </>
-              }
+                  </>
+                );
+              })()}
               name={`Signal Preset: ${currPresetKey()}`}
               splash="Signal presets define the signals and qualities available for use in the blueprint."
             />
@@ -94,7 +102,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
         >
           <Portal>
             <SignalFormExtraction
-              ref={(api) => (refFormExtraction = api)}
+              ref={(api) => (refs.formExtraction = api)}
               onSubmit={(key, preset) => {
                 addSignalPreset(key, preset)
                   .then(refetchSignalPresetKeys)
@@ -103,7 +111,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
                     setCurrPresetRaw(new TextEncoder().encode(JSON.stringify(preset)));
                     setCurrPresetKey(key);
                     props.showToast(`Preset "${key}" created!`);
-                    refFormExtraction.hide();
+                    refs.formExtraction.hide();
                   });
               }}
               showToast={props.showToast}
@@ -119,7 +127,7 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
                 onChange={(e) => {
                   const presetKey = e.currentTarget.value.replace(PREFIX, "");
                   if (presetKey === "add-preset") {
-                    refFormExtraction.show();
+                    refs.formExtraction.show();
                     e.currentTarget.value = PREFIX + currPresetKey()!;
                   } else {
                     setCurrPresetKey(presetKey);
@@ -134,19 +142,44 @@ export default function SignalPresetSelect(props: SignalPresetSelectProps) {
                 </option>
               </select>
             </div>
-            <button
-              class="button-red w-8 h-8 text-xl font-bold"
-              type="button"
-              disabled={DEFAULT_SIGNAL_PRESET_KEYS.includes(currPresetKey() ?? "")}
-              onClick={() => refDialogDelete.show()}
-              title={
-                DEFAULT_SIGNAL_PRESET_KEYS.includes(currPresetKey() ?? "")
-                  ? "Cannot remove default presets"
-                  : `Remove the currently selected preset "${currPresetKey()}"`
+
+            <FactorioSelect
+              name="Preset"
+              key="signal-preset"
+              customTitle={
+                <button type="button" class="button icon-button w-8 h-8 [-webkit-text-stroke:1px_black]" title="More options">
+                  ⋮
+                </button>
               }
-            >
-              🞫
-            </button>
+              options={(() => {
+                const disabled = DEFAULT_SIGNAL_PRESET_KEYS.includes(currPresetKey() ?? "");
+                return {
+                  copy: {
+                    name: "⧉ Copy signals",
+                    tooltip: `Copy signal data JSON for the preset "${currPresetKey()}"`,
+                  },
+                  edit: {
+                    name: "✎ Edit preset",
+                    tooltip: disabled ? "Cannot edit built-in presets" : `Edit preset "${currPresetKey()}"`,
+                    disabled,
+                  },
+                  delete: {
+                    name: "✕ Delete preset",
+                    tooltip: disabled ? "Cannot delete built-in presets" : `Delete preset "${currPresetKey()}"`,
+                    disabled,
+                  },
+                };
+              })()}
+              onChange={(v) => {
+                if (v === "copy") {
+                  refs.formExtraction.show(currPreset()!, { kind: "copy", name: currPresetKey()! });
+                } else if (v === "edit") {
+                  refs.formExtraction.show(currPreset()!, { kind: "edit", name: currPresetKey()! });
+                } else if (v === "delete") {
+                  refs.dialogDelete.show();
+                }
+              }}
+            />
           </div>
         </Show>
       </div>

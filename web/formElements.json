@@ -20,7 +20,7 @@
     "splash": "Modes other than 'Everything' will not use the input video / image."
   },
   "includePowerPoles": {
-    "name": "Power Poles",
+    "name": "Include Power Poles",
     "type": "checkbox",
     "tooltip": "Whether to include power poles in the blueprint.",
     "splash": "Power poles are not required on space platforms."

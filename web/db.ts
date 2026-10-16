@@ -50,7 +50,6 @@ export async function loadFileDB(key: string): Promise<File | null> {
 
 export async function getSignalPresetNames(): Promise<string[]> {
   const db = await fileDBPromise;
-  console.log("getSignalPresetNames");
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SIGNAL_PRESETS_STORAGE_KEY, "readonly");
     const req = tx.objectStore(SIGNAL_PRESETS_STORAGE_KEY).getAllKeys();

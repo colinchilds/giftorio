@@ -111,3 +111,11 @@ type SentenceCase<S extends string> = S extends `${infer First}${infer Rest}` ? 
 
 export const { BASE_URL } = import.meta.env;
 export const nullify = <T>(): T | null => null;
+
+export function maybeToEntries<T>(
+  v: T,
+): T extends readonly unknown[] ? T : T extends object ? [keyof T, T[keyof T]][] : T extends [keyof (infer K), infer V] ? [K, V][] : never {
+  if (Array.isArray(v)) return v as any;
+  if (typeof v !== "object" || v === null) return v as any;
+  return Object.entries(v) as any;
+}

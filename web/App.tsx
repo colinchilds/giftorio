@@ -757,7 +757,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         </div>
 
         <footer class="fixed bottom-8 w-full gap-8 text-center text-gray-300">
-          <a href="https://github.com/colinchilds/giftorio" class="pr-8" target="_blank" rel="noopener noreferrer">
+          <a href="https://github.com/Number-3434/giftorio" class="pr-8" target="_blank" rel="noopener noreferrer">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 30 30"
