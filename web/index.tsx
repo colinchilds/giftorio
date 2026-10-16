@@ -4,7 +4,7 @@ import { ErrorBoundary } from "solid-js";
 import { render } from "solid-js/web";
 import streamSaver from "streamsaver"; // If unsupported, this will fall back to a polyfill that buffers in RAM
 
-streamSaver.mitm = "/streamsaver/mitm.html";
+streamSaver.mitm = `${import.meta.env.BASE_URL}streamsaver/mitm.html`;
 
 let refApp: AppApi;
 
@@ -40,7 +40,7 @@ async function unblockWriter() {
 worker.addEventListener("message", async (event) => {
   if (event.data.type === "start") {
     const { filename } = event.data;
-    const pathname = [Math.random(), Date.now(), filename].join("/");
+    const pathname = `${Math.random().toString(36).slice(2)}-${Date.now().toString(36).slice(2)}/${filename}`;
 
     downloadUrl = new URL(`${SCOPE.href}${ORIGIN}/${pathname}`).toString();
     writer = streamSaver.createWriteStream(filename, { pathname }).getWriter();
