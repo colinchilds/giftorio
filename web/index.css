@@ -53,161 +53,162 @@ hr {
   border-image-outset: 4px;
 }
 
-.factorio-slider-wrapper {
-  position: relative;
-  width: 100px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  margin-top: 0;
-
-  &.has-multiple-values {
-    margin-top: 20px;
+.factorio-slider-container {
+  &:has(.has-multiple-values) {
+    margin-top: 5px;
   }
-
-  /* Dark recessed track */
-  &::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 7px;
-
-    height: 5px;
-
-    background: #080808;
-    box-shadow: inset 1px -1px 2px 0.5px #aaaaaa;
-  }
-
-  &[aria-disabled="true"]::before {
-    box-shadow: 0 0 2px 0.5px #222222;
-  }
-
-  /* Orange section */
-  .factorio-slider-fill {
-    position: absolute;
-    left: 0;
-
-    height: 15px;
-    background: #fca000;
-    padding: 0;
-    margin: 0;
-
-    box-shadow:
-      inset 0 -2px 1px 0 #888888,
-      inset 1px 0 3px 0 #00000088,
-      inset 0 0 0 0.3px #000000,
-      inset -3px -1px 0 3px #00000022,
-      inset 0 1px 1px 1.2px #222222;
-
-    border-left: 1px solid #15100a;
-    pointer-events: none;
-
-    &[aria-disabled="true"] {
-      background: #444444;
-    }
-  }
-  .factorio-slider-thumb {
-    pointer-events: none;
+  .factorio-slider-wrapper {
     position: relative;
-    padding: 0;
-    margin: 0;
-    width: var(--slider-width);
-    height: 15px;
-    z-index: 1;
+    width: 100px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    margin-top: 0;
 
-    background: #888;
+    /* Dark recessed track */
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 7px;
 
-    &.has-multiple-values {
-      &::before {
-        content: "";
-        position: absolute;
-        left: calc(var(--progress) * calc(100% - var(--slider-width)));
-        top: -6px;
+      height: 5px;
 
-        width: 100%;
-        border-left: calc(var(--slider-width) / 2) solid transparent;
-        border-right: calc(var(--slider-width) / 2) solid transparent;
-        border-bottom: calc(var(--slider-width) / 2) solid #888;
+      background: #080808;
+      box-shadow: inset 1px -1px 2px 0.5px #aaaaaa;
+    }
+
+    &[aria-disabled="true"]::before {
+      box-shadow: 0 0 2px 0.5px #222222;
+    }
+
+    /* Orange section */
+    .factorio-slider-fill {
+      position: absolute;
+      left: 0;
+
+      height: 15px;
+      background: #fca000;
+      padding: 0;
+      margin: 0;
+
+      box-shadow:
+        inset 0 -2px 1px 0 #888888,
+        inset 1px 0 3px 0 #00000088,
+        inset 0 0 0 0.3px #000000,
+        inset -3px -1px 0 3px #00000022,
+        inset 0 1px 1px 1.2px #222222;
+
+      border-left: 1px solid #15100a;
+      pointer-events: none;
+
+      &[aria-disabled="true"] {
+        background: #444444;
+      }
+    }
+    .factorio-slider-thumb {
+      pointer-events: none;
+      position: relative;
+      padding: 0;
+      margin: 0;
+      width: var(--slider-width);
+      height: 15px;
+      z-index: 1;
+
+      background: #888;
+
+      &.has-multiple-values {
+        &::before {
+          content: "";
+          position: absolute;
+          left: calc(var(--progress) * calc(100% - var(--slider-width)));
+          top: -6px;
+
+          width: 100%;
+          border-left: calc(var(--slider-width) / 2) solid transparent;
+          border-right: calc(var(--slider-width) / 2) solid transparent;
+          border-bottom: calc(var(--slider-width) / 2) solid #888;
+        }
+      }
+
+      left: calc(var(--progress) * calc(100% - var(--slider-width)));
+      outline: 1px solid #222;
+      border-radius: 1px;
+
+      box-shadow:
+        -1px 0 5px 2px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.45);
+
+      cursor: grab;
+
+      &.glow {
+        box-shadow: 0 0 5px 3px #ffd894;
+      }
+      &:active {
+        cursor: grabbing;
       }
     }
 
-    left: calc(var(--progress) * calc(100% - var(--slider-width)));
-    outline: 1px solid #222;
-    border-radius: 1px;
+    .indicators {
+      position: absolute;
+      margin-left: calc(var(--slider-width) / 2);
+      margin-right: calc(var(--slider-width) / 2);
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transform: translateY(-12px);
 
-    box-shadow:
-      -1px 0 5px 2px rgba(0, 0, 0, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.45);
-
-    cursor: grab;
-
-    &.glow {
-      box-shadow: 0 0 5px 3px #ffd894;
+      .indicator {
+        position: relative;
+        width: 1px;
+        height: 8px;
+        background: #222;
+        box-shadow:
+          0 0 0 1px #222,
+          0 -2px 1px 1px #ffffff08,
+          0 1px 0.5px 1px #aaaaaaaa;
+      }
     }
-    &:active {
-      cursor: grabbing;
-    }
-  }
 
-  .indicators {
-    position: absolute;
-    margin-left: calc(var(--slider-width) / 2);
-    margin-right: calc(var(--slider-width) / 2);
-    inset: 0;
-    pointer-events: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transform: translateY(-12px);
+    .factorio-slider {
+      position: absolute;
+      inset: 0;
 
-    .indicator {
-      position: relative;
-      width: 1px;
-      height: 8px;
-      background: #222;
-      box-shadow:
-        0 0 0 1px #222,
-        0 -2px 1px 1px #ffffff08,
-        0 1px 0.5px 1px #aaaaaaaa;
-    }
-  }
+      width: 100%;
+      height: 100%;
 
-  .factorio-slider {
-    position: absolute;
-    inset: 0;
+      margin: 0;
+      padding: 0;
 
-    width: 100%;
-    height: 100%;
-
-    margin: 0;
-    padding: 0;
-
-    appearance: none;
-    background: transparent;
-    box-shadow: none;
-
-    cursor: pointer;
-
-    /* Remove native track */
-    &::-webkit-slider-runnable-track,
-    &::-moz-range-track {
+      appearance: none;
       background: transparent;
-    }
+      box-shadow: none;
 
-    /* Factorio-ish metal thumb */
-    &::-webkit-slider-thumb,
-    &::-moz-range-thumb {
-      width: var(--slider-width);
-      opacity: 0;
-    }
+      cursor: pointer;
 
-    &:disabled {
-      cursor: not-allowed;
+      /* Remove native track */
+      &::-webkit-slider-runnable-track,
+      &::-moz-range-track {
+        background: transparent;
+      }
 
+      /* Factorio-ish metal thumb */
       &::-webkit-slider-thumb,
       &::-moz-range-thumb {
-        background: #444;
+        width: var(--slider-width);
+        opacity: 0;
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+
+        &::-webkit-slider-thumb,
+        &::-moz-range-thumb {
+          background: #444;
+        }
       }
     }
   }

@@ -217,26 +217,26 @@
   "imageRotation": {
     "name": "Rotation",
     "type": "select",
-    "tooltip": "Rotates the GIF before processing it, whilst keeping data combinators in the same location. This can be used to change the location of data combinators; e.g. to put combinatorson the left side instead of the right, set this to 90°, and then inside Factorio, rotate the blueprint by -90° to match the original GIF.",
+    "tooltip": "Rotates the GIF before processing it, then rotates the entire blueprint back after processing. This has the effect of rotating all non-lamp entities around the display.",
     "options": {
       "none": "None",
       "deg90": "90° Clockwise",
       "deg180": "180° Clockwise",
       "deg270": "270° Clockwise"
     },
-    "splash": "Wire connections will maintain the same rotation relative to the GIF. Combinators will always appear in the top-left corner."
+    "splash": "Note: does not rotate the final GIF"
   },
   "flippedAxes": {
     "name": "Flip Axes",
     "type": "select",
-    "tooltip": "Mirrors the GIF before processing it, whilst keeping data combinators in the same location. This can be utilised to change the location of data combinators. E.g. to put combinators on the right of the top side instead of the right, set this to 'X', and then inside Factorio, flip the blueprint horizontally to match the original GIF.",
+    "tooltip": "Mirrors the GIF before processing it, then un-mirrors all entities after blueprint generation. This has the effect of mirroring the side combinators appear on.",
     "options": {
       "none": "None",
       "x": "X",
       "y": "Y",
       "both": "Both"
     },
-    "splash": "Combinators will always appear in the top-left corner."
+    "splash": "Note: does not mirror the final GIF"
   },
   "wireColor": {
     "name": "Primary Wire Color",

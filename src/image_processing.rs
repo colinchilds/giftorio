@@ -12,19 +12,23 @@ fn now_ms() -> f64 {
     js_sys::Date::now()
 }
 
+pub type FrameCallback =
+    Box<dyn for<'a, 'b> Fn(Result<&'a image::DynamicImage, &'b JsValue>) + 'static>;
+
 pub struct FrameData<'a> {
     args: &'a BlueprintArgs,
-    frame_i: u32,
     curr_n_ms: u32,
     fps_timer: f64,
+    frame_i: u32,
     frames: image::Frames<'a>,
     in_dim: UVec2,
     in_n_frames: u32,
     is_first: bool,
-    samp_i: u32,
+    on_frame: Option<FrameCallback>,
     out_dim_raw: DVec2,
     out_n_frames: u32,
     prev_frame: Option<(image::Frame, u32)>,
+    samp_i: u32,
 }
 
 impl FrameData<'_> {
@@ -56,7 +60,11 @@ impl FrameData<'_> {
     }
 }
 impl<'a> FrameData<'a> {
-    pub fn new(image_data: &'a [u8], args: &'a BlueprintArgs) -> Result<Self, JsValue> {
+    pub fn new(
+        image_data: &'a [u8],
+        args: &'a BlueprintArgs,
+        on_frame: Option<FrameCallback>,
+    ) -> Result<Self, JsValue> {
         let frame_data = get_frames(image_data, &args)?;
         let in_dim = frame_data.dimensions();
         let n_frames = frame_data.n_frames();
@@ -78,16 +86,17 @@ impl<'a> FrameData<'a> {
                 )
             },
             args,
-            frame_i: 0,
             curr_n_ms: 0,
             fps_timer: now_ms(),
+            frame_i: 0,
             frames: frame_data.frames,
             in_dim,
             in_n_frames: n_frames,
             is_first: true,
-            samp_i: 0,
+            on_frame,
             out_dim_raw: scale_factor * DVec2::from(in_dim),
             prev_frame: None,
+            samp_i: 0,
         })
     }
 }
@@ -115,7 +124,26 @@ impl Iterator for FrameData<'_> {
 
             // Flush any remaining frames
             if let Some(frame) = frame {
-                return Some(self.convert_frame(frame));
+                let frame = self.convert_frame(frame);
+                self.on_frame.as_ref().map(|f| f(frame.as_ref()));
+
+                let frame = frame.map(|mut frame| {
+                    use crate::blueprint::models::{FlippedAxes::*, ImageRotation::*};
+                    frame = match self.args.flipped_axes {
+                        X => frame.fliph(),
+                        Y => frame.flipv(),
+                        Both => frame.flipv().fliph(),
+                        _ => frame,
+                    };
+                    frame = match self.args.image_rotation {
+                        Deg90 => frame.rotate90(),
+                        Deg180 => frame.rotate180(),
+                        Deg270 => frame.rotate270(),
+                        _ => frame,
+                    };
+                    frame
+                });
+                return Some(frame);
             }
 
             // Only get the next frame if we're past the current output time
@@ -194,18 +222,7 @@ impl FrameData<'_> {
                 },
             ),
         };
-        img = match self.args.flipped_axes {
-            FlippedAxes::X => img.fliph(),
-            FlippedAxes::Y => img.flipv(),
-            FlippedAxes::Both => img.flipv().fliph(),
-            _ => img,
-        }; // Flip before rotate
-        img = match self.args.image_rotation {
-            Deg90 => img.rotate90(),
-            Deg180 => img.rotate180(),
-            Deg270 => img.rotate270(),
-            _ => img,
-        };
+
         Ok(img)
     }
 }
@@ -261,8 +278,8 @@ pub fn get_frames<'a>(data: &'a [u8], args: &BlueprintArgs) -> Result<ImageFrame
                 let frames = 1;
                 let use_combs = matches!(args.mode, Mode::Static { combs: true, .. });
                 let duration = Duration::from_millis(if use_combs { 1000 } else { 0 });
-                dim = UVec2::from(args.image_metadata.image_size.expect("No image size"));
                 info = AnimationInfo { frames, duration };
+                dim = UVec2::from(args.image_metadata.image_size.expect("No image size"));
                 image::Frames::new(Box::new(std::iter::once(Ok(image::Frame::new(
                     image::RgbaImage::from_raw(dim.x, dim.y, data.to_vec())
                         .expect("buffer length must be width * height * 4"),

@@ -1,5 +1,5 @@
-#[allow(unused_macros)]
 /// Logs a message to the web console.
+#[allow(unused_macros)]
 macro_rules! log {
     ($($arg:tt)*) => {{
         let value = format!($($arg)*);

@@ -65,11 +65,8 @@ local function format_json(s, opts)
 	local limit = opts.limit or 100
 	local indent = opts.indent or 2
 
-	if type(indent) == "number" then
-		indent = string.rep(" ", indent)
-	elseif indent == nil then
-		indent = "\t"
-	end
+	if type(indent) == "number" then indent = string.rep(" ", indent)
+	elseif indent == nil then indent = "\t" end
 
 	local n = #s
 	local close, lens, stack = {}, {}, {}
@@ -94,14 +91,10 @@ local function format_json(s, opts)
 			lens[top] = lens[top] + 1
 			close[top] = i
 			stack[#stack] = nil
-			if stack[#stack] then
-				lens[stack[#stack]] = lens[stack[#stack]] + lens[top]
-			end
+			if stack[#stack] then lens[stack[#stack]] = lens[stack[#stack]] + lens[top] end
 		elseif top and not c:match("%s") then
 			lens[top] = lens[top] + 1
-			if c == "," or c == ":" then
-				lens[top] = lens[top] + 1
-			end
+			if c == "," or c == ":" then lens[top] = lens[top] + 1 end
 		end
 	end
 
@@ -120,9 +113,7 @@ local function format_json(s, opts)
 				out[#out+1] = c
 			elseif not c:match("%s") then
 				out[#out+1] = c
-				if c == "," or c == ":" then
-					out[#out+1] = " "
-				end
+				if c == "," or c == ":" then out[#out+1] = " " end
 			end
 		end
 
@@ -136,7 +127,9 @@ local function format_json(s, opts)
 			local c = s:sub(i, i)
 			if e then e = false
 			elseif c == "\\" then e = true
-			elseif c == '"' then return i end
+			elseif c == '"' then
+				return i
+			end
 			i = i + 1
 		end
 		return b
@@ -163,9 +156,7 @@ local function format_json(s, opts)
 		local i = a + 1
 
 		while i < ending do
-			while i < ending and s:sub(i,i):match("%s") do
-				i = i + 1
-			end
+			while i < ending and s:sub(i,i):match("%s") do i = i + 1 end
 			if i >= ending then break end
 
 			result[#result+1] = "\n" .. string.rep(indent, d)
@@ -173,40 +164,28 @@ local function format_json(s, opts)
 			if c == "{" then
 				local j = string_end(i, ending)
 				result[#result+1] = s:sub(i, j) .. ": "
+
 				i = j + 1
-
-				while i < ending and s:sub(i,i):match("%s") do
-					i = i + 1
-				end
+				while i < ending and s:sub(i,i):match("%s") do i = i + 1 end
 				i = i + 1
-
-				while i < ending and s:sub(i,i):match("%s") do
-					i = i + 1
-				end
+				while i < ending and s:sub(i,i):match("%s") do i = i + 1 end
 			end
 
 			local v = s:sub(i,i)
 			local j
 
-			if v == "{" or v == "[" then
-				j = close[i]
-			elseif v == '"' then
-				j = string_end(i, ending)
+			if v == "{" or v == "[" then j = close[i]
+			elseif v == '"' then j = string_end(i, ending)
 			else
 				j = i
-				while j < ending and
-					not s:sub(j,j):match('[,%]%}%s]') do
-					j = j + 1
-				end
+				while j < ending and not s:sub(j,j):match('[,%]%}%s]') do j = j + 1 end
 				j = j - 1
 			end
 
 			result[#result+1] = fmt(i, j, d)
 			i = j + 1
 
-			while i < ending and s:sub(i,i):match("%s") do
-				i = i + 1
-			end
+			while i < ending and s:sub(i,i):match("%s") do i = i + 1 end
 
 			if s:sub(i,i) == "," then
 				result[#result+1] = ","
@@ -214,9 +193,7 @@ local function format_json(s, opts)
 			end
 		end
 
-		if #result > 1 then
-			result[#result+1] = "\n" .. string.rep(indent, depth)
-		end
+		if #result > 1 then result[#result+1] = "\n" .. string.rep(indent, depth) end
 		result[#result+1] = s:sub(ending, ending)
 
 		return table.concat(result)
@@ -226,8 +203,7 @@ local function format_json(s, opts)
 end
 
 
-if p.gui.screen.custom_signals_copy_window then
-	p.gui.screen.custom_signals_copy_window.destroy()
+if p.gui.screen.custom_signals_copy_window then p.gui.screen.custom_signals_copy_window.destroy()
 else
 	local f = p.gui.screen.add{type="frame", name=WINDOW_NAME, caption="Signals List", direction="vertical"}
 	f.auto_center = true
@@ -239,8 +215,8 @@ else
 		table.concat(quals, ","),
 		table.concat(poles, ",")
 	)
-	text = format_json(text, {indent="\t", limit=100})
-	local t = f.add{type="text-box", name="bp_text", text=text}
+
+	local t = f.add{type="text-box", name="bp_text", text=format_json(text, {indent="\t", limit=100})}
 	t.style.width = 600
 	t.style.height = 600
 	t.read_only = true

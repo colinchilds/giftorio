@@ -15,6 +15,7 @@ import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM } from
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
+import { renderFrame } from "./worker";
 
 export interface AppApi {
   showOpenStreamingWindowWarning(): void;
@@ -35,13 +36,19 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [showAdvanced, setShowAdvanced] = createSignal(false);
   const [isMobile, setIsMobile] = createSignal(false);
   const [imageData, setImageData] = createSignal<ImageData>();
+  const [workerShouldShowPreview, setWorkerShouldShowPreview] = createSignal(false);
   const [isStaticImage, setIsStaticImage] = createSignal(false);
+  const [showPreview, setShowPreview] = createSignal(false);
   const [signalPreset, setSignalPreset] = createSignal<SignalPreset | null>(null);
   const [signalPresetRaw, setSignalPresetRaw] = createSignal<Uint8Array | null>(null);
   const [timingSignals, setTimingSignals] = createSignal<TimingSignals | null>(null);
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
 
+  let canvas: OffscreenCanvas;
+  let ctx: OffscreenCanvasRenderingContext2D;
+
   let refBackground: BackgroundApi = null!;
+  let refCanvas: HTMLCanvasElement = null!; // Used for preview
   let refDialogReset: FactorioDialogDeleteApi = null!;
   let refFormContainer: HTMLDivElement = null!;
   let refToasts: FactorioToastsApi = null!;
@@ -145,13 +152,16 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   }
 
   // Worker message handler
-  worker.onmessage = async (evt) => {
-    if (evt.data.progress) {
-      const { percentage, status } = evt.data.progress;
+  worker.onmessage = async ({ data }) => {
+    if (data.progress) {
+      const { percentage, status } = data.progress;
       formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
       formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
-    } else if (evt.data.blueprintMetadata) {
-      const { blueprintMetadata } = evt.data;
+    } else if (data.shouldShowPreview) {
+      const { showPreview } = data.shouldShowPreview;
+      setWorkerShouldShowPreview(showPreview);
+    } else if (data.blueprintMetadata) {
+      const { blueprintMetadata } = data;
 
       showToast("Blueprint downloaded!");
 
@@ -159,8 +169,13 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       formRefs.blueprintResult.classList.remove("hidden");
       formRefs.responseText.innerHTML = "Blueprint downloaded!";
       formRefs.submitButton.disabled = false;
-    } else if (evt.data.error) {
-      showToast(evt.data.error, { isError: true });
+    } else if (data.preview) {
+      const { pixels, width, height } = data.preview;
+      renderFrame(canvas, ctx, pixels, width, height);
+      // const url = await rgbaToImageURL(pixels, width, height);
+      // refBackground.setImageURL(url);
+    } else if (data.error) {
+      showToast(data.error, { isError: true });
       setIsGenerating(false);
       formRefs.submitButton.disabled = false;
     }
@@ -284,6 +299,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             powerPoleName: formData.powerPoleName,
             powerPoleQuality: formData.powerPoleQuality,
             resamplingFilter: `${formData.resamplingFilter}`,
+            showPreview: showPreview(),
             signalCompression,
             signalSorting:
               formData.signalSorting === "auto" ? (formData.outputFormat === "json" ? "json" : "compression") : `${formData.signalSorting}`,
@@ -359,6 +375,11 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       });
   });
 
+  onMount(() => {
+    canvas = refCanvas.transferControlToOffscreen();
+    ctx = canvas.getContext("2d")!;
+  });
+
   createEffect(() => {
     if (formData.mode !== "full") {
       formRefs.fileInput.setAttribute("aria-disabled", "true");
@@ -369,6 +390,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   });
   createEffect(() => localStorage.setItem(SHOW_ADVANCED_KEY, showAdvanced().toString()));
   createEffect(() => signalPresetRaw() && worker.postMessage({ signalPresetRaw: signalPresetRaw()! }));
+  createEffect(() => worker.postMessage({ showPreview: { showPreview: showPreview() } }));
 
   function AnimationInfoDisplay(props: Partial<AnimationInfo> & { file: File | null }) {
     return (
@@ -465,6 +487,23 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     <>
       <KeyboardListener keys={["Enter", "e", "E"]} onKeyDown={() => formRefs.submitButton.click()} />
       <Background ref={(api) => (refBackground = api)} />
+
+      <div classList={{ hidden: !showPreview() }}>
+        <div class="fixed inset-0 bg-black w-full h-full" />
+        <canvas ref={refCanvas!} class="fixed inset-0 w-full h-full object-contain" />
+
+        <Show
+          when={workerShouldShowPreview()}
+          fallback={
+            <>
+              <div class="fixed inset-0 bg-black w-full h-full opacity-50" />
+              <h2 class="fixed inset-0 grid place-items-center [text-shadow:1px_1px_2px_black]">Waiting for preview...</h2>
+            </>
+          }
+        >
+          <h2 class="fixed bottom-[20%] left-1/2 -translate-x-1/2 [text-shadow:1px_1px_2px_black]">Live Preview</h2>
+        </Show>
+      </div>
 
       <div class="fixed top-0 left-0 right-0 font-semibold">
         <Show when={isMobile()}>
@@ -710,7 +749,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
           </div>
 
           {/* Blueprint Status Section */}
-          <div ref={(el) => (formRefs.blueprintStatus = el)} classList={{ hidden: !isGenerating() }} class="panel w-full min-w-[384px]">
+          <div ref={(el) => (formRefs.blueprintStatus = el)} classList={{ hidden: !isGenerating() }} class="panel w-full min-w-[384px] ">
             <div class="progress-container" ref={(el) => (formRefs.progressContainer = el)} id="progressContainer">
               <p ref={(el) => (formRefs.progressStatus = el)} id="progressStatus" class="progress-status text-tan-500">
                 Starting...
@@ -720,6 +759,10 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                   <div ref={(el) => (formRefs.progressBar = el)} id="progressBar" class="progress-bar"></div>
                 </div>
               </div>
+              <div class="my-5" />
+              <button type="button" class="button w-full" onClick={() => setShowPreview((v) => !v)}>
+                Click to {showPreview() ? "hide" : "show"} preview
+              </button>
             </div>
             <div
               ref={(el) => (formRefs.blueprintResult = el)}

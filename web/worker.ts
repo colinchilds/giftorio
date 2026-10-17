@@ -9,6 +9,21 @@ import { BASE_URL } from "./utils.js";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
 
+export function renderFrame(
+  canvas: OffscreenCanvas,
+  ctx: OffscreenCanvasRenderingContext2D,
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+) {
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const data = new Uint8ClampedArray(pixels.buffer as ArrayBuffer, pixels.byteOffset, pixels.byteLength);
+  ctx.putImageData(new ImageData(data, width, height), 0, 0);
+}
+
 async function main() {
   const wasmReadyPromises = {
     init: (async () => {
@@ -20,9 +35,11 @@ async function main() {
     setSignalData: Promise.resolve(),
   };
 
+  // For preview of the rendered GIF
   let writerReadyResolve: (() => void) | null = null;
   let writerReady: Promise<void> = Promise.resolve();
 
+  const state = { shouldShowPreview: false };
   const waitForWriterReady = () => new Promise<void>((resolve) => (writerReadyResolve = resolve));
 
   const pendingWrites = new Map();
@@ -38,6 +55,9 @@ async function main() {
 
       pendingWrites.delete(event.data.id);
       event.data.error ? pending.reject(new Error(event.data.error)) : pending.resolve();
+    } else if (event.data.showPreview) {
+      const { showPreview } = event.data.showPreview;
+      state.shouldShowPreview = showPreview;
     } else if (event.data.generate) {
       const { imageData, args } = event.data.generate;
       const { outputFormat } = args;
@@ -63,13 +83,24 @@ async function main() {
 
         await writerReady;
 
-        const blueprintMetadata = await run_blueprint(args, imageData, (data: Uint8Array) => {
-          return new Promise<void>((resolve, reject) => {
-            const id = nextWriteId++;
-            pendingWrites.set(id, { resolve, reject });
-            postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
-          });
-        });
+        const callbacks = {
+          onChunk(data: Uint8Array) {
+            return new Promise<void>((resolve, reject) => {
+              const id = nextWriteId++;
+              pendingWrites.set(id, { resolve, reject });
+              postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
+            });
+          },
+          onFrame(pixels: Uint8Array, width: number, height: number) {
+            postMessage({ preview: { pixels, width, height } }, { targetOrigin: "*", transfer: [pixels.buffer] });
+          },
+          shouldShowPreview() {
+            postMessage({ shouldShowPreview: { showPreview: state.shouldShowPreview } });
+            return state.shouldShowPreview;
+          },
+        };
+
+        const blueprintMetadata = await run_blueprint(args, imageData, callbacks);
         postMessage({ blueprintMetadata });
         postMessage({ type: "done" });
       } catch (e) {

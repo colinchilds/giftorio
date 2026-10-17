@@ -58,7 +58,7 @@ pub struct TimingSignals {
     pub t: crate::blueprint::models::SignalID,
 }
 
-#[derive(Copy, Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ImageFilter {
     #[serde(rename = "blur")]
@@ -73,7 +73,7 @@ pub enum ImageFilter {
     Unsharpen(f32, i32),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageMetadata {
     #[serde(rename = "imageType")]
     pub image_type: Option<String>,
@@ -81,7 +81,7 @@ pub struct ImageMetadata {
     pub image_size: Option<(u32, u32)>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ImageRotation {
     #[serde(rename = "none")]
     Deg0 = 0,
@@ -93,7 +93,7 @@ pub enum ImageRotation {
     Deg270 = 270,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FlippedAxes {
     #[serde(rename = "none")]
     None = 0,
@@ -105,7 +105,7 @@ pub enum FlippedAxes {
     Both = 3,
 }
 
-#[derive(Copy, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Mode {
     #[serde(rename = "full")]
     Full,
@@ -124,7 +124,7 @@ pub enum Mode {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SignalSorting {
     #[serde(rename = "none")]
     None,
@@ -134,7 +134,7 @@ pub enum SignalSorting {
     Json,
 }
 
-#[derive(Copy, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ResamplingFilter {
     #[serde(rename = "catrom")]
     Catrom,
@@ -150,7 +150,7 @@ pub enum ResamplingFilter {
     Thumbnail,
 }
 
-#[derive(Debug, Copy, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SignalCompression {
     #[serde(rename = "temporal")]
     Temporal { window: u32 },
@@ -158,7 +158,7 @@ pub enum SignalCompression {
     Delta,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum OutputFormat {
     #[serde(rename = "blueprint")]
     Blueprint,

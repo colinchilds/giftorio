@@ -5,7 +5,7 @@ import nyanMp4 from "@/assets/img/nyan.mp4";
 import nyanWebm from "@/assets/img/nyan.webm";
 import rickMp4 from "@/assets/img/rick.mp4";
 import rickWebm from "@/assets/img/rick.webm";
-import { createSignal, onMount } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
 const MEDIA = [
   { mp4: nyanMp4, webm: nyanWebm, fallback: nyanGif },
@@ -16,15 +16,20 @@ const MEDIA = [
 export interface BackgroundApi {
   setImageURL(url: string | null | undefined): void;
 }
-export default function Background(props: { ref?: (api: BackgroundApi) => void; interval?: number }) {
+export interface BackgroundProps {
+  ref?(api: BackgroundApi): void;
+  interval?: number;
+}
+export default function Background(props: BackgroundProps) {
   const [currMediaIdx, setCurrMediaIdx] = createSignal(0);
   const [canUseVideoBg, setCanUseVideoBg] = createSignal(true);
   const [useVideoBg, setUseVideoBg] = createSignal(true);
   const [customImageURL, setCustomImageURL] = createSignal<string>();
-  let refImage;
+
+  let refImage: HTMLImageElement | null = null;
 
   props.ref?.({
-    setImageURL(url: string | null | undefined) {
+    setImageURL(url) {
       if (!url) {
         setUseVideoBg(canUseVideoBg());
         setCustomImageURL(undefined);
@@ -50,23 +55,37 @@ export default function Background(props: { ref?: (api: BackgroundApi) => void; 
   return (
     <div id="media-container" class="fixed top-0 left-0 w-full h-full z-[-1]">
       <div class="absolute inset-0 bg-black"></div>
-      <img
-        ref={refImage}
-        src={customImageURL() ?? undefined}
-        alt="test"
-        width="20"
-        class="absolute top-0 left-0 w-full h-full object-contain transition-opacity duration-1000 ease-in-out opacity-30 z-0"
-        classList={{ hidden: !customImageURL() }}
-        style={{ "image-rendering": "pixelated" }}
-      />
-      {customImageURL()
-        ? null
-        : useVideoBg()
-          ? MEDIA.map((media, i) => (
+
+      <Show
+        when={!customImageURL()}
+        fallback={
+          <img
+            ref={refImage!}
+            src={customImageURL() ?? undefined}
+            alt="test"
+            width="20"
+            class="absolute top-0 left-0 w-full h-full object-contain transition-opacity duration-1000 ease-in-out opacity-30 z-0"
+            style={{ "image-rendering": "pixelated" }}
+          />
+        }
+      >
+        <For each={MEDIA}>
+          {(media, i) => (
+            <Show
+              when={useVideoBg()}
+              fallback={
+                <img
+                  src={media.fallback}
+                  alt=""
+                  class="absolute top-0 left-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out opacity-0 z-0"
+                  classList={{ "opacity-100": i() === currMediaIdx() }}
+                />
+              }
+            >
               <video
-                id={`bg-video-${i + 1}`}
+                id={`bg-video-${i() + 1}`}
                 class="absolute top-0 left-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out pointer-events-none opacity-0 z-0"
-                classList={{ "opacity-100": i === currMediaIdx() }}
+                classList={{ "opacity-100": i() === currMediaIdx() }}
                 autoplay
                 muted
                 loop
@@ -76,15 +95,10 @@ export default function Background(props: { ref?: (api: BackgroundApi) => void; 
                 <source src={media.webm} type="video/webm" />
                 <img src={media.fallback} alt="" class="w-full h-full object-cover" />
               </video>
-            ))
-          : MEDIA.map((media, i) => (
-              <img
-                src={media.fallback}
-                alt=""
-                class="absolute top-0 left-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out opacity-0 z-0"
-                classList={{ "opacity-100": i === currMediaIdx() }}
-              />
-            ))}
+            </Show>
+          )}
+        </For>
+      </Show>
     </div>
   );
 }

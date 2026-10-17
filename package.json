@@ -25,11 +25,13 @@
     "@thisbeyond/solid-dnd": "^0.7.5",
     "ajv": "^8.20.0",
     "fflate": "^0.8.3",
+    "modern-gif": "^2.1.0",
     "solid-js": "^1.9.3",
     "streamsaver": "^2.0.6"
   },
   "prettier": {
     "arrowParens": "always",
-    "printWidth": 140
+    "printWidth": 140,
+    "quoteProps": "preserve"
   }
 }

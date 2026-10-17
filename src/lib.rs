@@ -1,3 +1,4 @@
+use image::GenericImageView;
 use wasm_bindgen::prelude::*;
 
 mod blueprint;
@@ -8,6 +9,15 @@ mod macros;
 mod models;
 mod progress;
 mod streaming_writer;
+
+fn get_cb<T: js_sys::JsFunction>(
+    callbacks: &JsValue,
+    name: &str,
+) -> Result<js_sys::Function<T>, JsValue> {
+    js_sys::Reflect::get(callbacks, &name.into())?
+        .dyn_into::<js_sys::Function<T>>()
+        .map_err(|_| JsValue::from_str(&format!("{name} must be a function")))
+}
 
 #[wasm_bindgen]
 pub fn init() {
@@ -28,13 +38,23 @@ pub fn init() {
 pub async fn run_blueprint(
     options: JsValue,
     image_data: &[u8], // note: may be empty
-    send_chunk: &js_sys::Function<fn(js_sys::Uint8Array) -> js_sys::Promise>,
+    callbacks: JsValue,
+    // on_chunk: &js_sys::Function<fn(js_sys::Uint8Array) -> js_sys::Promise>,
+    // on_preview: &js_sys::Function<
+    //     fn(js_sys::Uint8Array, js_sys::Number, js_sys::Number) -> js_sys::Undefined,
+    // >,
 ) -> Result<JsValue, JsValue> {
     use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
-    use image_processing::FrameData;
+    use image_processing::{FrameCallback, FrameData};
     use models::*;
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
     use streaming_writer::StreamingWriter;
+
+    let on_chunk = get_cb::<fn(js_sys::Uint8Array) -> js_sys::Promise>(&callbacks, "onChunk")?;
+    let on_frame = get_cb::<
+        fn(js_sys::Uint8Array, js_sys::Number, js_sys::Number) -> js_sys::Undefined,
+    >(&callbacks, "onFrame")?;
+    let should_show_preview = get_cb::<fn() -> js_sys::Boolean>(&callbacks, &"shouldShowPreview")?;
 
     let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
     let mut frame_data: Option<FrameData> = None;
@@ -46,14 +66,26 @@ pub async fn run_blueprint(
         args.target_fps = 1;
     }
     if matches!(args.mode, Mode::Full | Mode::Static { .. }) {
-        // Create iterator over frames. Auto-detects the total number of frames + total duration
-        // using custom byte scanning.
-        frame_data = Some(FrameData::new(image_data, &args).unwrap_throw());
+        let on_frame = on_frame.clone();
+        let on_frame: FrameCallback = Box::new(move |result| {
+            if should_show_preview.call0(&JsValue::NULL).unwrap().as_bool() == Some(false) {
+                return;
+            }
+            let img = result.unwrap_throw();
+            let buf = js_sys::Uint8Array::from(img.to_rgba8().as_raw().as_slice());
+            let (w, h) = img.dimensions();
+            let (w, h) = (js_sys::Number::from(w), js_sys::Number::from(h));
+            on_frame.call(&JsValue::NULL, (&buf, &w, &h)).unwrap_throw();
+        });
+
+        // Create iterator over frames.
+        frame_data = Some(FrameData::new(image_data, &args, Some(on_frame)).unwrap_throw());
     }
 
+    // Custom writer that invokes a callback whenever chunk size is reached.
     let writer = StreamingWriter::new(1 * 1000 * 1000, |chunk| {
         let data = js_sys::Uint8Array::from(chunk.as_slice());
-        let promise = send_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
+        let promise = on_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
         let promise = js_sys::Promise::from(promise);
         promise_q.borrow_mut().back_mut().map(|q| q.push(promise));
     });

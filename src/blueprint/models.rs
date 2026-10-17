@@ -6,7 +6,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 
-#[derive(Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArithmeticCombinatorParameterOperation {
     #[default]
     #[serde(rename = "*")]
@@ -395,21 +395,17 @@ impl CircuitNetworkSelection {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CompareTypeString {
     #[serde(rename = "and")]
     And,
 
     #[serde(rename = "or")]
+    #[default]
     Or,
 }
 impl CompareTypeString {
     pub const fn default() -> Self {
-        Self::Or
-    }
-}
-impl Default for CompareTypeString {
-    fn default() -> Self {
         Self::Or
     }
 }
