@@ -45,6 +45,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
 
   let refBackground: BackgroundApi = null!;
   let refCanvas: HTMLCanvasElement = null!; // Used for preview
+  let refDialogLargeFile: FactorioDialogDeleteApi = null!;
   let refDialogReset: FactorioDialogDeleteApi = null!;
   let refFormContainer: HTMLDivElement = null!;
   let refToasts: FactorioToastsApi = null!;
@@ -382,6 +383,11 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   createEffect(() => localStorage.setItem(SHOW_ADVANCED_KEY, showAdvanced().toString()));
   createEffect(() => signalPresetRaw() && worker.postMessage({ signalPresetRaw: signalPresetRaw()! }));
   createEffect(() => worker.postMessage({ showPreview: { showPreview: showPreview() } }));
+  createEffect(() => {
+    if (isGenerating() && currFile()!.size > 1024 * 1024 * 10) {
+      refDialogLargeFile.show();
+    }
+  });
 
   function AnimationInfoDisplay(props: Partial<AnimationInfo> & { file: File | null }) {
     return (
@@ -506,6 +512,23 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
           </div>
         </Show>
 
+        <FactorioDialogDelete
+          ref={(api) => (refDialogLargeFile = api)}
+          cancelTitle="Cancel"
+          deleteTitle="Continue Anyway"
+          onCancel={() => window.location.reload()}
+        >
+          <Show when={currFile()}>
+            <h2>Large file warning ({formatFileSize(currFile()!.size)})!</h2>
+            <div class="text-white-500">
+              <div class="text-start">
+                <div>Importing large compressed blueprint strings into Factorio is buggy.</div>
+                <div>If the blueprint errors whilst importing, try using the "Raw JSON" format instead.</div>
+              </div>
+            </div>
+          </Show>
+        </FactorioDialogDelete>
+
         <div
           class="streaming-unavailable-warning transition-opacity duration-300"
           classList={{ "opacity-0": !showStreamingWindowWarning(), "opacity-100": showStreamingWindowWarning() }}
@@ -516,6 +539,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       </div>
       <div class="flex flex-col items-center justify-start min-h-screen">
         <FactorioToasts ref={(api) => (refToasts = api)} />
+
         <hr class="h-[20vh]" />
         <div ref={refFormContainer!} class="panel-container flex">
           <div classList={{ hidden: isGenerating() }} class="panel form flex-shrink-0">
