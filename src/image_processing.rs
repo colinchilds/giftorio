@@ -261,20 +261,20 @@ impl ImageFrameData<'_> {
 pub fn get_frames<'a>(data: &'a [u8], args: &BlueprintArgs) -> Result<ImageFrameData<'a>, JsValue> {
     let cursor = std::io::Cursor::new(data);
     let info: AnimationInfo;
-    let dim: UVec2;
+    let dimensions: UVec2;
     let image_type = args.image_metadata.image_type.as_ref();
 
     Ok(ImageFrameData {
         frames: match image_type.expect("image type required").as_str() {
             "gif" => {
                 let decoder = image::codecs::gif::GifDecoder::new(cursor).unwrap_throw();
-                dim = UVec2::from(decoder.dimensions());
+                dimensions = UVec2::from(decoder.dimensions());
                 info = animation_info(&data)?;
                 decoder.into_frames()
             }
             "webp" => {
                 let decoder = image::codecs::webp::WebPDecoder::new(cursor).unwrap_throw();
-                dim = UVec2::from(decoder.dimensions());
+                dimensions = UVec2::from(decoder.dimensions());
                 info = animation_info(&data)?;
                 decoder.into_frames()
             }
@@ -285,15 +285,15 @@ pub fn get_frames<'a>(data: &'a [u8], args: &BlueprintArgs) -> Result<ImageFrame
                     duration: Duration::from_millis(if use_combs { 1000 } else { 0 }),
                     timestamps_ms: vec![0],
                 };
-                dim = UVec2::from(args.image_metadata.image_size.expect("No image size"));
+                dimensions = UVec2::from(args.image_metadata.image_size.expect("No image size"));
                 image::Frames::new(Box::new(std::iter::once(Ok(image::Frame::new(
-                    image::RgbaImage::from_raw(dim.x, dim.y, data.to_vec())
+                    image::RgbaImage::from_raw(dimensions.x, dimensions.y, data.to_vec())
                         .expect("buffer length must be width * height * 4"),
                 ))))) // bruh
             }
         },
         info,
-        dimensions: dim,
+        dimensions,
     })
 }
 

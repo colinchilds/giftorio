@@ -481,14 +481,14 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
 
       <div classList={{ hidden: !isGenerating() || !showPreview() }}>
         <div class="fixed inset-0 bg-black w-full h-full" />
-        <canvas ref={refCanvas!} class="fixed inset-0 w-full h-full object-contain" />
+        <canvas ref={refCanvas!} class="fixed inset-0 w-full h-full object-contain [image-rendering:pixelated]" />
 
         <Show
           when={workerShouldShowPreview()}
           fallback={
             <>
               <div class="fixed inset-0 bg-black w-full h-full opacity-50" />
-              <h2 class="fixed inset-0 grid place-items-center [text-shadow:1px_1px_2px_black]">Waiting for preview...</h2>
+              <h2 class="fixed inset-0 grid place-items-center [text-shadow:1px_1px_2px_black]">Requesting preview...</h2>
             </>
           }
         >

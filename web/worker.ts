@@ -56,6 +56,7 @@ async function main() {
       const { canvas } = event.data.canvas;
       state.canvas = canvas;
       state.ctx = canvas.getContext("2d")!;
+      state.ctx!.imageSmoothingEnabled = false;
     } else if (event.data.showPreview) {
       const { showPreview } = event.data.showPreview;
       state.shouldShowPreview = showPreview;
