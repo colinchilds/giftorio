@@ -77,10 +77,11 @@ impl<'a, W: Write> BlueprintEncoder<'a, W> {
         Ok(Self { generator, writer })
     }
 
-    pub fn next(&mut self) -> Result<Option<()>, JsValue> {
+    pub async fn next(&mut self) -> Result<Option<()>, JsValue> {
         if !self.generator.done() {
             self.generator
-                .next_chunk(&mut self.writer.as_mut().unwrap())?;
+                .next_chunk(&mut self.writer.as_mut().unwrap())
+                .await?;
             return Ok(Some(()));
         }
         Ok(None)

@@ -15,7 +15,6 @@ import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM } from
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
-import { renderFrame } from "./worker";
 
 export interface AppApi {
   showOpenStreamingWindowWarning(): void;
@@ -43,9 +42,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [signalPresetRaw, setSignalPresetRaw] = createSignal<Uint8Array | null>(null);
   const [timingSignals, setTimingSignals] = createSignal<TimingSignals | null>(null);
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
-
-  let canvas: OffscreenCanvas;
-  let ctx: OffscreenCanvasRenderingContext2D;
 
   let refBackground: BackgroundApi = null!;
   let refCanvas: HTMLCanvasElement = null!; // Used for preview
@@ -169,11 +165,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       formRefs.blueprintResult.classList.remove("hidden");
       formRefs.responseText.innerHTML = "Blueprint downloaded!";
       formRefs.submitButton.disabled = false;
-    } else if (data.preview) {
-      const { pixels, width, height } = data.preview;
-      renderFrame(canvas, ctx, pixels, width, height);
-      // const url = await rgbaToImageURL(pixels, width, height);
-      // refBackground.setImageURL(url);
     } else if (data.error) {
       showToast(data.error, { isError: true });
       setIsGenerating(false);
@@ -376,8 +367,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   });
 
   onMount(() => {
-    canvas = refCanvas.transferControlToOffscreen();
-    ctx = canvas.getContext("2d")!;
+    const canvas = refCanvas.transferControlToOffscreen();
+    worker.postMessage({ canvas: { canvas } }, [canvas]);
   });
 
   createEffect(() => {
@@ -488,7 +479,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       <KeyboardListener keys={["Enter", "e", "E"]} onKeyDown={() => formRefs.submitButton.click()} />
       <Background ref={(api) => (refBackground = api)} />
 
-      <div classList={{ hidden: !showPreview() }}>
+      <div classList={{ hidden: !isGenerating() || !showPreview() }}>
         <div class="fixed inset-0 bg-black w-full h-full" />
         <canvas ref={refCanvas!} class="fixed inset-0 w-full h-full object-contain" />
 

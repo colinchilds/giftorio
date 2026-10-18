@@ -12,8 +12,12 @@ fn now_ms() -> f64 {
     js_sys::Date::now()
 }
 
-pub type FrameCallback =
-    Box<dyn for<'a, 'b> Fn(Result<&'a image::DynamicImage, &'b JsValue>) + 'static>;
+pub type FrameCallback = Box<
+    dyn for<'a> Fn(
+            Result<&'a image::DynamicImage, &'a JsValue>,
+        ) -> std::pin::Pin<Box<dyn Future<Output = ()> + 'a>>
+        + 'static,
+>;
 
 pub struct FrameData<'a> {
     args: &'a BlueprintArgs,
@@ -99,11 +103,8 @@ impl<'a> FrameData<'a> {
             samp_i: 0,
         })
     }
-}
-impl Iterator for FrameData<'_> {
-    type Item = Result<image::DynamicImage, JsValue>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    pub async fn next(&mut self) -> Option<Result<image::DynamicImage, JsValue>> {
         let mut frame: Option<image::Frame> = None;
 
         if self.frame_i == 0 {
@@ -125,7 +126,10 @@ impl Iterator for FrameData<'_> {
             // Flush any remaining frames
             if let Some(frame) = frame {
                 let frame = self.convert_frame(frame);
-                self.on_frame.as_ref().map(|f| f(frame.as_ref()));
+
+                if let Some(callback) = &self.on_frame {
+                    callback(frame.as_ref()).await;
+                }
 
                 let frame = frame.map(|mut frame| {
                     use crate::blueprint::models::{FlippedAxes::*, ImageRotation::*};

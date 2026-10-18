@@ -77,7 +77,10 @@ struct GroupPatchState {
 }
 
 impl<'a> BlueprintGenerator<'a> {
-    pub fn new(data: Option<FrameData<'a>>, args: &'a BlueprintArgs) -> Result<Self, JsValue> {
+    pub async fn new(
+        data: Option<FrameData<'a>>,
+        args: &'a BlueprintArgs,
+    ) -> Result<Self, JsValue> {
         let signals = Self::get_signal_data(&args);
         let gray_bits = args.grayscale_bits;
         let comb_comp = args.signal_compression;
@@ -97,7 +100,7 @@ impl<'a> BlueprintGenerator<'a> {
             };
             dim = frame_data.dimensions();
             frame_info = Some(FrameInfo {
-                curr_frame: frame_data.next().transpose()?.unwrap(),
+                curr_frame: frame_data.next().await.transpose()?.unwrap(),
                 frame_data,
                 group_data_combs: Vec::new(),
                 frames_per_cb,
@@ -237,7 +240,7 @@ impl<'a> BlueprintGenerator<'a> {
         self.state == BlueprintState::Finished
     }
 
-    pub fn next_chunk(&mut self, writer: &mut dyn io::Write) -> Result<bool, JsValue> {
+    pub async fn next_chunk(&mut self, writer: &mut dyn io::Write) -> Result<bool, JsValue> {
         let old_state = self.state.clone();
         match old_state {
             BlueprintState::Start => {
@@ -275,15 +278,15 @@ impl<'a> BlueprintGenerator<'a> {
                 write_json_trimmed_to(writer, &bp)?;
                 self.state = BlueprintState::Entities;
             }
-            BlueprintState::Entities => self.place_entities(writer)?,
+            BlueprintState::Entities => self.place_entities(writer).await?,
             BlueprintState::Data => {
                 if self.should_generate_cbs {
-                    self.populate_data(writer)?;
+                    self.populate_data(writer).await?;
                 } else {
                     self.state = BlueprintState::Wires;
                 }
             }
-            BlueprintState::Wires => self.make_wires(writer)?,
+            BlueprintState::Wires => self.make_wires(writer).await?,
             BlueprintState::Finished => return Ok(false),
         }
 
@@ -388,7 +391,7 @@ impl<'a> BlueprintGenerator<'a> {
         return output.join("");
     }
 
-    fn place_entities(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    async fn place_entities(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let args = self.args;
         let info = &mut self.frame_info;
         let signals = &mut self.signals;
@@ -509,7 +512,7 @@ impl<'a> BlueprintGenerator<'a> {
         Ok(())
     }
 
-    fn populate_data(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    async fn populate_data(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let info = self.frame_info.as_mut().unwrap();
 
         let group_data_combs = &mut info.group_data_combs;
@@ -560,7 +563,7 @@ impl<'a> BlueprintGenerator<'a> {
         let mut output_ents: Vec<BlueprintEntity> = Vec::with_capacity(ENCODE_CHUNK_SIZE);
 
         loop {
-            info.next_frame = frame_data.next().transpose()?;
+            info.next_frame = frame_data.next().await.transpose()?;
             let frame = &info.curr_frame;
             let is_last_frame = info.next_frame.is_none();
 
@@ -722,7 +725,7 @@ impl<'a> BlueprintGenerator<'a> {
         Ok(())
     }
 
-    fn make_wires(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    async fn make_wires(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
         let all_ents = &mut self.entity_data.ents;
         let all_wires = &mut self.entity_data.wires;
         let n_wires = all_wires.len();

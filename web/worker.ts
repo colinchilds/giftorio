@@ -9,21 +9,6 @@ import { BASE_URL } from "./utils.js";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
 
-export function renderFrame(
-  canvas: OffscreenCanvas,
-  ctx: OffscreenCanvasRenderingContext2D,
-  pixels: Uint8Array,
-  width: number,
-  height: number,
-) {
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
-  const data = new Uint8ClampedArray(pixels.buffer as ArrayBuffer, pixels.byteOffset, pixels.byteLength);
-  ctx.putImageData(new ImageData(data, width, height), 0, 0);
-}
-
 async function main() {
   const wasmReadyPromises = {
     init: (async () => {
@@ -39,11 +24,23 @@ async function main() {
   let writerReadyResolve: (() => void) | null = null;
   let writerReady: Promise<void> = Promise.resolve();
 
-  const state = { shouldShowPreview: false };
+  const state = {
+    canvas: null as OffscreenCanvas | null,
+    ctx: null as OffscreenCanvasRenderingContext2D | null,
+
+    shouldShowPreview: false,
+  };
   const waitForWriterReady = () => new Promise<void>((resolve) => (writerReadyResolve = resolve));
 
   const pendingWrites = new Map();
   let nextWriteId = 0;
+
+  const channel = new MessageChannel();
+  const queue: (() => void)[] = [];
+
+  channel.port1.onmessage = (): void => {
+    queue.shift()?.();
+  };
 
   // Immediately add event listeners
   addEventListener("message", async (event) => {
@@ -55,6 +52,10 @@ async function main() {
 
       pendingWrites.delete(event.data.id);
       event.data.error ? pending.reject(new Error(event.data.error)) : pending.resolve();
+    } else if (event.data.canvas) {
+      const { canvas } = event.data.canvas;
+      state.canvas = canvas;
+      state.ctx = canvas.getContext("2d")!;
     } else if (event.data.showPreview) {
       const { showPreview } = event.data.showPreview;
       state.shouldShowPreview = showPreview;
@@ -86,17 +87,45 @@ async function main() {
         const callbacks = {
           onChunk(data: Uint8Array) {
             return new Promise<void>((resolve, reject) => {
-              const id = nextWriteId++;
-              pendingWrites.set(id, { resolve, reject });
-              postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
+              try {
+                const id = nextWriteId++;
+                pendingWrites.set(id, { resolve, reject });
+                postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
+              } catch (e) {
+                console.error(e);
+                reject(e);
+              }
             });
           },
-          onFrame(pixels: Uint8Array, width: number, height: number) {
-            postMessage({ preview: { pixels, width, height } }, { targetOrigin: "*", transfer: [pixels.buffer] });
+          onFrame(memory: WebAssembly.Memory, ptr: number, len: number, width: number, height: number) {
+            try {
+              const { canvas, ctx } = state;
+
+              if (!canvas || !ctx) return;
+              if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+              }
+
+              const data = new Uint8ClampedArray(memory.buffer, ptr, len);
+              ctx.putImageData(new ImageData(data, width, height), 0, 0);
+            } catch (e) {
+              console.error(e);
+            }
           },
           shouldShowPreview() {
-            postMessage({ shouldShowPreview: { showPreview: state.shouldShowPreview } });
-            return state.shouldShowPreview;
+            try {
+              postMessage({ shouldShowPreview: { showPreview: state.shouldShowPreview } });
+              return state.shouldShowPreview;
+            } catch (e) {
+              console.error(e);
+            }
+          },
+          yieldToJs() {
+            return new Promise<void>((resolve: () => void) => {
+              queue.push(resolve);
+              channel.port2.postMessage(null);
+            });
           },
         };
 
