@@ -1,3 +1,5 @@
+import { createEffect, createSignal } from "solid-js";
+
 export function formatDuration(totalMs: number): string {
   const totalSeconds = Math.floor(totalMs / 1000);
 
@@ -118,4 +120,16 @@ export function maybeToEntries<T>(
   if (Array.isArray(v)) return v as any;
   if (typeof v !== "object" || v === null) return v as any;
   return Object.entries(v) as any;
+}
+
+export function useLocalStorageJSON<T>(key: string, initialValue: T) {
+  const [value, setValue] = createSignal(initialValue);
+
+  createEffect(() => {
+    const item = localStorage.getItem(key);
+    item && setValue(JSON.parse(item));
+  });
+  createEffect(() => localStorage.setItem(key, JSON.stringify(value())));
+
+  return [value, setValue] as const;
 }

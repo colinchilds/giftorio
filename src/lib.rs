@@ -84,33 +84,34 @@ pub async fn run_blueprint(
             let should_show_preview = Rc::clone(&should_show_preview);
             let yield_to_js = Rc::clone(&yield_to_js);
 
-            let preview_buffer = Rc::clone(&preview_buffer_cb);
+            let buf = Rc::clone(&preview_buffer_cb);
 
             Box::pin(async move {
-                if should_show_preview.call0(&JsValue::NULL).unwrap().as_bool() == Some(false) {
-                    return;
-                }
-                let img = result.unwrap_throw();
-                let rgba = img.to_rgba8();
-                let mut buf = preview_buffer.borrow_mut();
-                // Reuse the allocation when its capacity is sufficient.
-                buf.clear();
-                buf.extend_from_slice(rgba.as_raw());
-
-                let ptr = buf.as_ptr() as u32;
-                let len = buf.len() as u32;
-
-                let memory = wasm_bindgen::memory();
-
-                let (w, h) = img.dimensions();
-                let args = (&memory, &js_num(ptr), &js_num(len), &js_num(w), &js_num(h));
-
-                on_frame.call(&JsValue::NULL, args).unwrap_throw();
-
                 let promise = yield_to_js.call(&JsValue::NULL, ()).unwrap_throw();
                 wasm_bindgen_futures::JsFuture::from(promise)
                     .await
                     .unwrap_throw();
+
+                if should_show_preview.call0(&JsValue::NULL).unwrap().as_bool() == Some(false) {
+                    return;
+                }
+                let img = result.unwrap_throw();
+                let mut buf = buf.borrow_mut();
+
+                // Reuse the allocation when its capacity is sufficient.
+                buf.clear();
+                match img.as_rgba8() {
+                    Some(rgba) => buf.extend_from_slice(rgba.as_raw()),
+                    None => buf.extend_from_slice(img.to_rgba8().as_raw()),
+                }
+
+                let (ptr, len) = (buf.as_ptr() as u32, buf.len() as u32);
+                let mem = wasm_bindgen::memory();
+
+                let (w, h) = img.dimensions();
+                let args = (&mem, &js_num(ptr), &js_num(len), &js_num(w), &js_num(h));
+
+                on_frame.call(&JsValue::NULL, args).unwrap_throw();
             })
         });
 

@@ -23,10 +23,11 @@ pub struct FrameData<'a> {
     args: &'a BlueprintArgs,
     curr_n_ms: u32,
     fps_timer: f64,
-    frame_i: u32,
+    frame_i: usize,
     frames: image::Frames<'a>,
     in_dim: UVec2,
     in_n_frames: u32,
+    info: AnimationInfo,
     is_first: bool,
     on_frame: Option<FrameCallback>,
     out_dim_raw: DVec2,
@@ -81,13 +82,12 @@ impl<'a> FrameData<'a> {
         }
 
         Ok(Self {
-            out_n_frames: if matches!(args.mode, Mode::Static { .. }) {
-                1
-            } else {
-                expected_output_frames(
-                    frame_data.total_duration_ms.as_millis() as u32,
+            out_n_frames: match args.mode {
+                Mode::Static { .. } => 1,
+                _ => expected_output_frames(
+                    frame_data.info.duration.as_millis() as u32,
                     args.target_fps.max(1),
-                )
+                ),
             },
             args,
             curr_n_ms: 0,
@@ -96,6 +96,7 @@ impl<'a> FrameData<'a> {
             frames: frame_data.frames,
             in_dim,
             in_n_frames: n_frames,
+            info: frame_data.info,
             is_first: true,
             on_frame,
             out_dim_raw: scale_factor * DVec2::from(in_dim),
@@ -234,15 +235,14 @@ impl FrameData<'_> {
 pub struct ImageFrameData<'a> {
     pub frames: image::Frames<'a>,
     dimensions: UVec2,
-    n_frames: u32,
-    total_duration_ms: Duration,
+    info: AnimationInfo,
 }
 impl ImageFrameData<'_> {
     pub fn dimensions(&self) -> UVec2 {
         self.dimensions
     }
     pub fn n_frames(&self) -> u32 {
-        self.n_frames
+        self.info.frames
     }
 }
 
@@ -279,10 +279,12 @@ pub fn get_frames<'a>(data: &'a [u8], args: &BlueprintArgs) -> Result<ImageFrame
                 decoder.into_frames()
             }
             _ => {
-                let frames = 1;
                 let use_combs = matches!(args.mode, Mode::Static { combs: true, .. });
-                let duration = Duration::from_millis(if use_combs { 1000 } else { 0 });
-                info = AnimationInfo { frames, duration };
+                info = AnimationInfo {
+                    frames: 1,
+                    duration: Duration::from_millis(if use_combs { 1000 } else { 0 }),
+                    timestamps_ms: vec![0],
+                };
                 dim = UVec2::from(args.image_metadata.image_size.expect("No image size"));
                 image::Frames::new(Box::new(std::iter::once(Ok(image::Frame::new(
                     image::RgbaImage::from_raw(dim.x, dim.y, data.to_vec())
@@ -290,9 +292,8 @@ pub fn get_frames<'a>(data: &'a [u8], args: &BlueprintArgs) -> Result<ImageFrame
                 ))))) // bruh
             }
         },
+        info,
         dimensions: dim,
-        n_frames: info.frames,
-        total_duration_ms: info.duration,
     })
 }
 

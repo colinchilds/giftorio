@@ -3,6 +3,7 @@ use std::time::Duration;
 pub struct AnimationInfo {
     pub frames: u32,
     pub duration: Duration,
+    pub timestamps_ms: Vec<u64>,
 }
 
 /// Copied from image crate
@@ -71,9 +72,10 @@ pub fn gif_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
     }
 
     // Delay belonging to the next image descriptor.
-    let mut pending_delay_cs = 0u64;
-    let mut frames = 0u32;
-    let mut duration_cs = 0u64;
+    let mut pending_delay_cs: u64 = 0u64;
+    let mut frames: u32 = 0u32;
+    let mut duration_cs: u64 = 0u64;
+    let mut timestamps_ms = Vec::new();
 
     #[inline(always)]
     fn skip_sub_blocks(data: &[u8], pos: &mut usize) -> Result<(), &'static str> {
@@ -122,6 +124,8 @@ pub fn gif_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
                 // LZW data sub-blocks
                 skip_sub_blocks(data, &mut pos)?;
 
+                // The current frame starts after all previous frame delays.
+                timestamps_ms.push(duration_cs * 10);
                 duration_cs += pending_delay_cs;
                 pending_delay_cs = 0;
             }
@@ -148,9 +152,11 @@ pub fn gif_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
                 }
             }
             0x3B => {
+                duration_cs += pending_delay_cs;
                 return Ok(AnimationInfo {
                     frames,
                     duration: Duration::from_millis(duration_cs * 10),
+                    timestamps_ms,
                 });
             }
             _ => {
@@ -182,9 +188,10 @@ pub fn webp_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
         return Err("Truncated WebP");
     }
 
-    let mut pos = 12;
-    let mut frames = 0u32;
-    let mut duration_ms = 0u64;
+    let mut pos: usize = 12;
+    let mut frames: u32 = 0u32;
+    let mut duration_ms: u64 = 0u64;
+    let mut timestamps_ms = Vec::<u64>::new();
 
     while end.saturating_sub(pos) >= 8 {
         let chunk_type = &data[pos..pos + 4];
@@ -211,6 +218,7 @@ pub fn webp_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
             let frame_duration_ms = data[pos + 12] as u64
                 | ((data[pos + 13] as u64) << 8)
                 | ((data[pos + 14] as u64) << 16);
+            timestamps_ms.push(duration_ms);
             duration_ms += frame_duration_ms;
         }
 
@@ -225,6 +233,7 @@ pub fn webp_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
     Ok(AnimationInfo {
         frames,
         duration: Duration::from_millis(duration_ms),
+        timestamps_ms,
     })
 }
 

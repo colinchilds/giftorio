@@ -11,7 +11,7 @@ import SignalSelectors, { TimingSignals } from "@/components/signal/SignalSelect
 import { FORM_ELEMENTS, getInitialValues, LAST_FILE_KEY, setInitialValues, SHOW_ADVANCED_KEY, SignalPreset } from "@/data";
 import { loadFileDB, saveFileDB } from "@/db";
 import { FormElementValue } from "@/types";
-import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM } from "@/utils";
+import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM, useLocalStorageJSON } from "@/utils";
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
@@ -37,7 +37,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [imageData, setImageData] = createSignal<ImageData>();
   const [workerShouldShowPreview, setWorkerShouldShowPreview] = createSignal(false);
   const [isStaticImage, setIsStaticImage] = createSignal(false);
-  const [showPreview, setShowPreview] = createSignal(false);
+  const [showPreview, setShowPreview] = useLocalStorageJSON("giftorio-show-preview", true);
   const [signalPreset, setSignalPreset] = createSignal<SignalPreset | null>(null);
   const [signalPresetRaw, setSignalPresetRaw] = createSignal<Uint8Array | null>(null);
   const [timingSignals, setTimingSignals] = createSignal<TimingSignals | null>(null);
