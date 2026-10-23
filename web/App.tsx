@@ -20,6 +20,7 @@ import { getVideoPixelData, seekTo } from "./worker";
 const MAX_BUFFERED_VIDEO_FRAMES = 4;
 
 export interface AppApi {
+  setDownloadUrl(url: string): void;
   showOpenStreamingWindowWarning(): void;
 }
 export interface AppProps {
@@ -45,15 +46,16 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [signalPresetRaw, setSignalPresetRaw] = createSignal<Uint8Array | null>(null);
   const [timingSignals, setTimingSignals] = createSignal<TimingSignals | null>(null);
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
+  const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
 
-  let refBackground: BackgroundApi = null!;
-  let refDialogLargeFile: FactorioDialogDeleteApi = null!;
-  let refDialogReset: FactorioDialogDeleteApi = null!;
-  let refFormContainer: HTMLDivElement = null!;
-  let refToasts: FactorioToastsApi = null!;
-  let refVideo: HTMLVideoElement = null!;
+  let refBackground!: BackgroundApi;
+  let refDialogLargeFile!: FactorioDialogDeleteApi;
+  let refDialogReset!: FactorioDialogDeleteApi;
+  let refFormContainer!: HTMLDivElement;
+  let refToasts!: FactorioToastsApi;
+  let refVideo!: HTMLVideoElement;
 
-  let refCanvas: HTMLCanvasElement = null!; // Used for preview
+  let refCanvas!: HTMLCanvasElement; // Used for preview
 
   let currFrameI = 0;
   let bufferedFrames = 0;
@@ -62,7 +64,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     setShowStreamingWindowWarning(true);
     setTimeout(() => setShowStreamingWindowWarning(false), 10000);
   }
-  ref({ showOpenStreamingWindowWarning } satisfies AppApi);
+  ref({ showOpenStreamingWindowWarning, setDownloadUrl } satisfies AppApi);
 
   // Refs
   const formRefs: {
