@@ -5,9 +5,64 @@ import init, {
   set_progress_callback,
   set_signal_data,
 } from "../pkg/giftorio_wasm.js";
-import { BASE_URL } from "./utils.js";
+import { BASE_URL, nullify } from "./utils.js";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
+
+export function getVideoPixelData(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+): ImageDataArray | null {
+  const ctx = canvas.getContext("2d")!;
+
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  ctx.drawImage(video, 0, 0, width, height);
+  return ctx.getImageData(0, 0, width, height).data;
+}
+
+export function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
+  if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+    return new Promise((resolve, reject) => {
+      video.addEventListener(
+        "loadedmetadata",
+        //
+        () => seekTo(video, time).then(resolve, reject),
+        { once: true },
+      );
+    });
+  }
+
+  if (Math.abs(video.currentTime - time) < 0.001) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    function onSeeked() {
+      cleanup();
+      resolve();
+    }
+    function onError() {
+      cleanup();
+      reject(video.error ?? new Error("Video seek failed"));
+    }
+    function cleanup() {
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+    }
+
+    // Register first, so a fast seek cannot beat the listener.
+    video.addEventListener("seeked", onSeeked, { once: true });
+    video.addEventListener("error", onError, { once: true });
+
+    video.currentTime = time;
+  });
+}
 
 async function main() {
   const wasmReadyPromises = {
@@ -25,8 +80,8 @@ async function main() {
   let writerReady: Promise<void> = Promise.resolve();
 
   const state = {
-    canvas: null as OffscreenCanvas | null,
-    ctx: null as OffscreenCanvasRenderingContext2D | null,
+    canvas: nullify<OffscreenCanvas>(),
+    ctx: nullify<OffscreenCanvasRenderingContext2D>(),
 
     shouldShowPreview: false,
   };
@@ -38,9 +93,7 @@ async function main() {
   const channel = new MessageChannel();
   const queue: (() => void)[] = [];
 
-  channel.port1.onmessage = (): void => {
-    queue.shift()?.();
-  };
+  channel.port1.onmessage = () => queue.shift()?.();
 
   // Immediately add event listeners
   addEventListener("message", async (event) => {
@@ -114,6 +167,14 @@ async function main() {
               console.error(e);
             }
           },
+          getFrameData(timestampMs: number, memory: WebAssembly.Memory, ptr: number, len: number, width: number, height: number) {
+            try {
+              console.log("getFrameData", timestampMs);
+              return { isFinished: true };
+            } catch (e) {
+              console.error(e);
+            }
+          },
           shouldShowPreview() {
             try {
               postMessage({ shouldShowPreview: { showPreview: state.shouldShowPreview } });
@@ -142,6 +203,13 @@ async function main() {
     } else if (event.data.type === "writerReady") {
       writerReadyResolve?.();
       writerReadyResolve = null;
+    } else if (event.data.videoRenderFrame) {
+      const { pixels, width, height } = event.data.videoRenderFrame;
+      const data = new Uint8ClampedArray(pixels);
+      const imageData = new ImageData(data, width, height);
+      console.log("videoRenderFrame", imageData);
+    } else {
+      throw new Error("Worker: Unhandled message", event.data);
     }
   });
 }

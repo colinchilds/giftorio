@@ -3,7 +3,7 @@ use std::time::Duration;
 pub struct AnimationInfo {
     pub frames: u32,
     pub duration: Duration,
-    pub timestamps_ms: Vec<u64>,
+    pub timestamps_ms: Option<Vec<u64>>,
 }
 
 /// Copied from image crate
@@ -156,7 +156,7 @@ pub fn gif_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
                 return Ok(AnimationInfo {
                     frames,
                     duration: Duration::from_millis(duration_cs * 10),
-                    timestamps_ms,
+                    timestamps_ms: Some(timestamps_ms),
                 });
             }
             _ => {
@@ -233,7 +233,7 @@ pub fn webp_info(data: &[u8]) -> Result<AnimationInfo, &'static str> {
     Ok(AnimationInfo {
         frames,
         duration: Duration::from_millis(duration_ms),
-        timestamps_ms,
+        timestamps_ms: Some(timestamps_ms),
     })
 }
 

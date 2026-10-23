@@ -15,6 +15,9 @@ import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM, useLo
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
+import { getVideoPixelData, seekTo } from "./worker";
+
+const MAX_BUFFERED_VIDEO_FRAMES = 4;
 
 export interface AppApi {
   showOpenStreamingWindowWarning(): void;
@@ -44,11 +47,16 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
 
   let refBackground: BackgroundApi = null!;
-  let refCanvas: HTMLCanvasElement = null!; // Used for preview
   let refDialogLargeFile: FactorioDialogDeleteApi = null!;
   let refDialogReset: FactorioDialogDeleteApi = null!;
   let refFormContainer: HTMLDivElement = null!;
   let refToasts: FactorioToastsApi = null!;
+  let refVideo: HTMLVideoElement = null!;
+
+  let refCanvas: HTMLCanvasElement = null!; // Used for preview
+
+  let currFrameI = 0;
+  let bufferedFrames = 0;
 
   function showOpenStreamingWindowWarning() {
     setShowStreamingWindowWarning(true);
@@ -154,6 +162,37 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       const { percentage, status } = data.progress;
       formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
       formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
+    } else if (data.videoRenderRequest) {
+      const { status } = data.videoRenderRequest;
+
+      async function produceFrame() {
+        const { width, height } = data.videoRenderRequest;
+
+        await seekTo(refVideo, currFrameI / formData.targetFps);
+
+        const pixels = getVideoPixelData(refVideo, refCanvas, width, height);
+
+        if (!pixels) return;
+
+        worker.postMessage({ videoRenderFrame: { pixels, width, height } }, [pixels.buffer]);
+
+        currFrameI++;
+      }
+
+      if (status === "need-frame") {
+        if (bufferedFrames < MAX_BUFFERED_VIDEO_FRAMES) {
+          bufferedFrames++;
+          produceFrame();
+        }
+      } else if (status === "frame-consumed") {
+        bufferedFrames--;
+
+        if (bufferedFrames === 0) {
+          produceFrame();
+        }
+      } else {
+        throw new Error(`Invalid videoRenderRequest status: ${status}`);
+      }
     } else if (data.shouldShowPreview) {
       const { showPreview } = data.shouldShowPreview;
       setWorkerShouldShowPreview(showPreview);
@@ -184,19 +223,35 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     let isStaticImage: boolean | null = null;
     let data: ImageData | undefined = undefined;
 
-    try {
-      const info = getAnimationInfo(new Uint8Array(await file.arrayBuffer()));
-      setAnimationInfo(info);
+    if (file.type.startsWith("image/")) {
+      try {
+        const info = getAnimationInfo(new Uint8Array(await file.arrayBuffer()));
+        setAnimationInfo(info);
+        isStaticImage = false;
+      } catch (e: any) {
+        if (!(e instanceof UnsupportedAnimationError)) throw e;
+
+        data = await getRawImageData(file);
+        isStaticImage = true;
+
+        // Parse the image directly in JS for more compatibility (we decode using the browser and
+        // send the image buffer directly to Rust instead of relying on support from Rust crates).
+        setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
+      }
+    } else if (file.type.startsWith("video/")) {
+      const src = URL.createObjectURL(file);
+      refVideo.src = src;
       isStaticImage = false;
-    } catch (e: any) {
-      if (!(e instanceof UnsupportedAnimationError)) throw e;
 
-      data = await getRawImageData(file);
-      isStaticImage = true;
-
-      // Parse the image directly in JS for more compatibility (we decode using the browser and
-      // send the image buffer directly to Rust instead of relying on support from Rust crates).
-      setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
+      refVideo.addEventListener(
+        "loadedmetadata",
+        () =>
+          refVideo.src === src &&
+          setAnimationInfo(new AnimationInfo(0, refVideo.duration * 1000, refVideo.videoWidth, refVideo.videoHeight)),
+        { once: true },
+      );
+    } else {
+      throw new Error(`Unsupported MIME type "${file.type}"`);
     }
 
     setIsStaticImage(isStaticImage);
@@ -277,7 +332,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             flippedAxes: `${formData.flippedAxes}`,
             grayscaleBits: +formData.grayscaleBits,
             imageMetadata: {
-              imageType: isStaticImage() ? "" : currFile()?.type.substring(6 /* image/ */),
+              imageType: currFile()!.type,
               imageSize: imageData() && [imageData()!.width, imageData()!.height],
             },
             imageFilters: [],
@@ -380,6 +435,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     }
     setInitialValues(formData);
   });
+
   createEffect(() => localStorage.setItem(SHOW_ADVANCED_KEY, showAdvanced().toString()));
   createEffect(() => signalPresetRaw() && worker.postMessage({ signalPresetRaw: signalPresetRaw()! }));
   createEffect(() => worker.postMessage({ showPreview: { showPreview: showPreview() } }));
@@ -502,6 +558,10 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         </Show>
       </div>
 
+      <div class="fixed inset-0 w-full h-full">
+        <video ref={refVideo} autoplay muted loop playsinline class="w-full h-full object-contain opacity-30" />
+      </div>
+
       <div class="fixed top-0 left-0 right-0 font-semibold">
         <Show when={isMobile()}>
           <div class="mobile-warning">⚠️ GIFtorio works best on desktop devices. Features may be limited on mobile.</div>
@@ -594,7 +654,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                         })
                         .finally(() => errM.test());
                     }}
-                    accept="image/*"
+                    accept="image/*,video/*"
                   />
                 </div>
               </div>

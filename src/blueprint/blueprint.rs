@@ -100,7 +100,7 @@ impl<'a> BlueprintGenerator<'a> {
             };
             dim = frame_data.dimensions();
             frame_info = Some(FrameInfo {
-                curr_frame: frame_data.next().await.transpose()?.unwrap(),
+                curr_frame: frame_data.next().await?.unwrap(),
                 frame_data,
                 group_data_combs: Vec::new(),
                 frames_per_cb,
@@ -563,7 +563,7 @@ impl<'a> BlueprintGenerator<'a> {
         let mut output_ents: Vec<BlueprintEntity> = Vec::with_capacity(ENCODE_CHUNK_SIZE);
 
         loop {
-            info.next_frame = frame_data.next().await.transpose()?;
+            info.next_frame = frame_data.next().await?;
             let frame = &info.curr_frame;
             let is_last_frame = info.next_frame.is_none();
 

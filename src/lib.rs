@@ -1,5 +1,6 @@
-use image::GenericImageView;
 use wasm_bindgen::prelude::*;
+
+use crate::macros::log;
 
 mod blueprint;
 mod constants;
@@ -9,10 +10,7 @@ mod macros;
 mod models;
 mod progress;
 mod streaming_writer;
-
-fn now_ms() -> f64 {
-    js_sys::Date::now()
-}
+mod util;
 
 fn get_cb<T: js_sys::JsFunction>(
     callbacks: &JsValue,
@@ -21,10 +19,6 @@ fn get_cb<T: js_sys::JsFunction>(
     js_sys::Reflect::get(callbacks, &name.into())?
         .dyn_into::<js_sys::Function<T>>()
         .map_err(|_| JsValue::from_str(&format!("{name} must be a function")))
-}
-
-fn js_num<N: Into<f64>>(num: N) -> js_sys::Number {
-    js_sys::Number::from(num.into())
 }
 
 #[wasm_bindgen]
@@ -53,11 +47,17 @@ pub async fn run_blueprint(
     // >,
 ) -> Result<JsValue, JsValue> {
     use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
-    use image_processing::{FrameCallback, FrameData};
+    use image::GenericImageView;
+    use image_processing::{FrameCallback, FrameData, JsVideoFrameCallback};
     use js_sys as js;
     use models::*;
-    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::VecDeque,
+        rc::Rc,
+    };
     use streaming_writer::StreamingWriter;
+    use util::{js_num, now_ms};
     use wasm_bindgen_futures::JsFuture;
 
     const SYNC_TIME_MS: f64 = 1000.0;
@@ -77,7 +77,10 @@ pub async fn run_blueprint(
     let on_frame = Rc::new(on_frame);
     let should_preview = Rc::new(should_show_preview);
     let yield_to_js = Rc::new(yield_to_js);
-    let next_yield_time = Rc::new(std::cell::Cell::new(now_ms() + SYNC_TIME_MS));
+    let next_yield_time = Rc::new(Cell::new(now_ms() + SYNC_TIME_MS));
+
+    // timestamp, pointer, len, width, height -> Promise<JsVideoFrame>
+    let js_next_frame = get_cb::<JsVideoFrameCallback>(&callbacks, "getFrameData")?;
 
     if matches!(args.mode, Mode::Static { .. }) {
         args.signal_compression = None;
@@ -121,8 +124,18 @@ pub async fn run_blueprint(
             })
         });
 
+        let js_next_frame = args
+            .image_metadata
+            .image_type
+            .as_ref()
+            .is_some_and(|v| v.starts_with("video/"))
+            .then(|| js_next_frame.clone());
+
+        log!("DASASASASASASASHERE");
+
         // Create iterator over frames.
-        frame_data = Some(FrameData::new(image_data, &args, Some(on_frame)).unwrap_throw());
+        frame_data =
+            Some(FrameData::new(image_data, &args, Some(on_frame), js_next_frame).unwrap_throw());
     }
 
     // Custom writer that invokes a callback whenever chunk size is reached.

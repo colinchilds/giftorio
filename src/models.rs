@@ -77,8 +77,10 @@ pub enum ImageFilter {
 pub struct ImageMetadata {
     #[serde(rename = "imageType")]
     pub image_type: Option<String>,
-    #[serde(rename = "imageSize")]
+    #[serde(default, rename = "imageSize")]
     pub image_size: Option<(u32, u32)>,
+    #[serde(default, rename = "imageRotation")]
+    pub duration: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

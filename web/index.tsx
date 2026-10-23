@@ -1,6 +1,6 @@
 import App, { AppApi } from "@/App";
 import "@/index.css";
-import { ErrorBoundary } from "solid-js";
+import { ErrorBoundary, Show } from "solid-js";
 import { render } from "solid-js/web";
 import streamSaver from "streamsaver"; // If unsupported, this will fall back to a polyfill that buffers in RAM
 
@@ -89,7 +89,24 @@ const root = document.getElementById("root");
 
 render(() => {
   return (
-    <ErrorBoundary fallback={(err) => <pre style={{ "white-space": "pre-wrap" }}>{err instanceof Error ? err.stack : String(err)}</pre>}>
+    <ErrorBoundary
+      fallback={(err) => {
+        console.error(err);
+        return (
+          <div class="w-screen h-screen bg-gray-800">
+            <pre class="whitespace-pre-wrap text-red-300 p-4 rounded">
+              <h2>Error:</h2>
+              <div>{String(err)}</div>
+              <Show when={err instanceof Error}>
+                <hr class="my-5" />
+                <h2>Stack Trace:</h2>
+                <div>{(err as Error).stack}</div>
+              </Show>
+            </pre>
+          </div>
+        );
+      }}
+    >
       <App ref={(api) => (refApp = api)} worker={worker} streamingAvailable={streamSaver.supported} />
     </ErrorBoundary>
   );
