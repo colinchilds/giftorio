@@ -58,7 +58,7 @@ pub fn generate_lamps(
             let index = r * grid_dim.x as usize + c;
 
             if top_right_ent_n.is_none() {
-                top_right_ent_n = Some(curr_ent_n); // Handle case where there's only one column
+                top_right_ent_n = Some(curr_ent_n); // Handle case of only one column
             }
 
             if matches!(args.mode, Mode::Static { combs: false, .. }) {

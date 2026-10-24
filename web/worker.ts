@@ -5,40 +5,27 @@ import init, {
   set_progress_callback,
   set_signal_data,
 } from "../pkg/giftorio_wasm.js";
-import { BASE_URL, nullify } from "./utils.js";
+import { type WasmSharedMemory } from "./types";
+import { BASE_URL, nullify } from "./utils";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
-
-export function getVideoPixelData(
-  video: HTMLVideoElement,
-  canvas: HTMLCanvasElement,
-  width: number,
-  height: number,
-): ImageDataArray | null {
-  const ctx = canvas.getContext("2d")!;
-
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
-
-  ctx.drawImage(video, 0, 0, width, height);
-  return ctx.getImageData(0, 0, width, height).data;
-}
+type VideoFrameMessage = {
+  bitmap?: ImageBitmap;
+  dimensions?: [number, number];
+  isFinished: boolean;
+};
 
 export function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
   if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
     return new Promise((resolve, reject) => {
       video.addEventListener(
         "loadedmetadata",
-        //
+
         () => seekTo(video, time).then(resolve, reject),
         { once: true },
       );
     });
-  }
-
-  if (Math.abs(video.currentTime - time) < 0.001) {
+  } else if (Math.abs(video.currentTime - time) < 0.001) {
     return Promise.resolve();
   }
 
@@ -90,32 +77,66 @@ async function main() {
   const pendingWrites = new Map();
   let nextWriteId = 0;
 
-  const channel = new MessageChannel();
-  const queue: (() => void)[] = [];
+  // Used to allow rust to yield to JS at regular intervals
+  const syncChannel = new MessageChannel();
+  const syncQ: (() => void)[] = [];
 
-  channel.port1.onmessage = () => queue.shift()?.();
+  syncChannel.port1.onmessage = () => syncQ.shift()?.();
+
+  const videoFrameQueue: VideoFrameMessage[] = [];
+  const videoFrameWaiters: Array<(frame: VideoFrameMessage) => void> = [];
+
+  let videoStreamFinished = false;
+
+  function enqueueVideoFrame(frame: VideoFrameMessage) {
+    if (frame.isFinished) {
+      videoStreamFinished = true;
+    }
+    const waiter = videoFrameWaiters.shift();
+    if (waiter) {
+      waiter(frame);
+    } else {
+      videoFrameQueue.push(frame);
+    }
+  }
+
+  function nextVideoFrame(): Promise<VideoFrameMessage> {
+    const frame = videoFrameQueue.shift();
+    if (frame) {
+      return Promise.resolve(frame);
+    } else if (videoStreamFinished) {
+      return Promise.resolve({ isFinished: true });
+    } else {
+      return new Promise((resolve) => videoFrameWaiters.push(resolve));
+    }
+  }
 
   // Immediately add event listeners
-  addEventListener("message", async (event) => {
+  addEventListener("message", async (evt) => {
     await wasmReadyPromises.init;
 
-    if (event.data.type === "chunkWritten") {
-      const pending = pendingWrites.get(event.data.id);
+    if (evt.data.type === "chunkWritten") {
+      const pending = pendingWrites.get(evt.data.id);
       if (!pending) return;
 
-      pendingWrites.delete(event.data.id);
-      event.data.error ? pending.reject(new Error(event.data.error)) : pending.resolve();
-    } else if (event.data.canvas) {
-      const { canvas } = event.data.canvas;
+      pendingWrites.delete(evt.data.id);
+      evt.data.error ? pending.reject(new Error(evt.data.error)) : pending.resolve();
+    } else if (evt.data.canvas) {
+      const { canvas } = evt.data.canvas;
       state.canvas = canvas;
-      state.ctx = canvas.getContext("2d")!;
-      state.ctx!.imageSmoothingEnabled = false;
-    } else if (event.data.showPreview) {
-      const { showPreview } = event.data.showPreview;
+      state.ctx = state.canvas!.getContext("2d", {
+        colorSpace: "srgb",
+        willReadFrequently: true,
+      })!;
+      // state.ctx!.imageSmoothingEnabled = false;
+    } else if (evt.data.showPreview) {
+      const { showPreview } = evt.data.showPreview;
       state.shouldShowPreview = showPreview;
-    } else if (event.data.generate) {
-      const { imageData, args } = event.data.generate;
-      const { outputFormat } = args;
+    } else if (evt.data.videoRenderFrame) {
+      enqueueVideoFrame(evt.data.videoRenderFrame);
+    } else if (evt.data.generate) {
+      const { imageData, args: blueprintArgs } = evt.data.generate;
+      const { outputFormat } = blueprintArgs;
 
       // Safe to do this now as we've already waited for init()
       if (wasmReadyPromises.setCombPosData === null) {
@@ -151,9 +172,10 @@ async function main() {
               }
             });
           },
-          onFrame(memory: WebAssembly.Memory, ptr: number, len: number, width: number, height: number) {
+          onFrame({ outBuffer, dimensions }: { outBuffer: WasmSharedMemory; dimensions: [number, number] }) {
             try {
               const { canvas, ctx } = state;
+              const [width, height] = dimensions;
 
               if (!canvas || !ctx) return;
               if (canvas.width !== width || canvas.height !== height) {
@@ -161,18 +183,61 @@ async function main() {
                 canvas.height = height;
               }
 
-              const data = new Uint8ClampedArray(memory.buffer, ptr, len);
+              const data = new Uint8ClampedArray(outBuffer.memory.buffer, outBuffer.ptr, outBuffer.len);
               ctx.putImageData(new ImageData(data, width, height), 0, 0);
             } catch (e) {
               console.error(e);
             }
           },
-          getFrameData(timestampMs: number, memory: WebAssembly.Memory, ptr: number, len: number, width: number, height: number) {
+          async getFrameData({ inBuffer, dimensions }: { inBuffer: WasmSharedMemory; dimensions: [number, number] }) {
             try {
-              console.log("getFrameData", timestampMs);
-              return { isFinished: true };
+              // Start production when the consumer first needs a frame.
+              postMessage({ videoRenderRequest: { status: "need-frame", dimensions } });
+
+              const frame = await nextVideoFrame();
+              if (frame.isFinished) {
+                return { isFinished: true };
+              }
+
+              const { bitmap, dimensions: frameDimensions } = frame;
+              const [width, height] = frameDimensions!;
+              if (!bitmap || width !== dimensions[0] || height !== dimensions[1]) {
+                bitmap?.close();
+                throw new Error("Unexpected video frame dimensions");
+              }
+
+              try {
+                const { canvas, ctx } = state;
+                if (!canvas || !ctx) {
+                  throw new Error("Canvas is not initialized");
+                }
+
+                if (canvas.width !== width || canvas.height !== height) {
+                  canvas.width = width;
+                  canvas.height = height;
+                }
+
+                // Reuse the SAME canvas used for preview rendering.
+                ctx.drawImage(bitmap, 0, 0, width, height);
+
+                const pixels = ctx.getImageData(0, 0, width, height).data;
+                const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
+
+                if (pixels.byteLength > dest.byteLength) {
+                  throw new Error("Video frame exceeds WASM buffer capacity");
+                }
+
+                dest.set(pixels);
+              } finally {
+                bitmap.close();
+              }
+
+              postMessage({ videoRenderRequest: { status: "frame-consumed" } });
+
+              return { isFinished: false };
             } catch (e) {
               console.error(e);
+              throw e;
             }
           },
           shouldShowPreview() {
@@ -185,31 +250,26 @@ async function main() {
           },
           yieldToJs() {
             return new Promise<void>((resolve: () => void) => {
-              queue.push(resolve);
-              channel.port2.postMessage(null);
+              syncQ.push(resolve);
+              syncChannel.port2.postMessage(null);
             });
           },
         };
 
-        const blueprintMetadata = await run_blueprint(args, imageData, callbacks);
+        const blueprintMetadata = await run_blueprint(blueprintArgs, imageData, callbacks);
         postMessage({ blueprintMetadata });
         postMessage({ type: "done" });
       } catch (e) {
         postMessage({ error: e?.toString() ?? String(e) });
       }
-    } else if (event.data.signalPresetRaw) {
-      const preset: Uint8Array = event.data.signalPresetRaw;
+    } else if (evt.data.signalPresetRaw) {
+      const preset: Uint8Array = evt.data.signalPresetRaw;
       wasmReadyPromises.setSignalData = set_signal_data(preset);
-    } else if (event.data.type === "writerReady") {
+    } else if (evt.data.type === "writerReady") {
       writerReadyResolve?.();
       writerReadyResolve = null;
-    } else if (event.data.videoRenderFrame) {
-      const { pixels, width, height } = event.data.videoRenderFrame;
-      const data = new Uint8ClampedArray(pixels);
-      const imageData = new ImageData(data, width, height);
-      console.log("videoRenderFrame", imageData);
     } else {
-      throw new Error("Worker: Unhandled message", event.data);
+      throw new Error("Worker: Unhandled message", evt.data);
     }
   });
 }

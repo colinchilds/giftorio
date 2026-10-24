@@ -21,10 +21,7 @@ pub fn set_progress_callback(callback: js_sys::Function) {
 ///
 /// * `percentage` - A value between 0 and 1 representing the progress.
 /// * `status` - A status message indicating the current stage.
-pub fn report_progress<T>(percentage: T, status: &str)
-where
-    T: Into<f64>,
-{
+pub fn report_progress<T: Into<f64>>(percentage: T, status: &str) {
     PROGRESS_CALLBACK.with_borrow(|progress| {
         if let Some(ref callback) = *progress {
             let pct = 100.0 * percentage.into();

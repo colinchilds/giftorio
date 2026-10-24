@@ -11,11 +11,11 @@ import SignalSelectors, { TimingSignals } from "@/components/signal/SignalSelect
 import { FORM_ELEMENTS, getInitialValues, LAST_FILE_KEY, setInitialValues, SHOW_ADVANCED_KEY, SignalPreset } from "@/data";
 import { loadFileDB, saveFileDB } from "@/db";
 import { FormElementValue } from "@/types";
-import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM, useLocalStorageJSON } from "@/utils";
+import { formatDuration, formatFileSize, kebabCaseToSentenceCase, nullify, useErrM, useLocalStorageJSON } from "@/utils";
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
-import { getVideoPixelData, seekTo } from "./worker";
+import { seekTo } from "./worker";
 
 const MAX_BUFFERED_VIDEO_FRAMES = 4;
 
@@ -57,8 +57,57 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
 
   let refCanvas!: HTMLCanvasElement; // Used for preview
 
-  let currFrameI = 0;
-  let bufferedFrames = 0;
+  const videoDecodeState = {
+    dimensions: nullify<[number, number]>(),
+    frameI: 0,
+    isDecoding: false,
+    isFinished: false,
+    nBufferedFrames: 0,
+  };
+
+  async function pumpVideoFrames() {
+    const state = videoDecodeState;
+    if (state.isDecoding || state.isFinished || !state.dimensions) return;
+
+    const [width, height] = state.dimensions;
+
+    state.isDecoding = true;
+
+    try {
+      while (state.nBufferedFrames < MAX_BUFFERED_VIDEO_FRAMES && !state.isFinished) {
+        // Reserve a slot before starting asynchronous work.
+        state.nBufferedFrames++;
+
+        const t0 = performance.now();
+        await seekTo(refVideo, state.frameI / formData.targetFps);
+        const t1 = performance.now();
+
+        const bitmap = await createImageBitmap(refVideo, {
+          resizeWidth: width,
+          resizeHeight: height,
+          resizeQuality: "medium",
+          colorSpaceConversion: "none",
+        });
+        const t2 = performance.now();
+        if (!bitmap) {
+          state.nBufferedFrames--;
+          state.isFinished = true;
+          worker.postMessage({ videoRenderFrame: { isFinished: true } });
+          break;
+        }
+
+        worker.postMessage({ videoRenderFrame: { bitmap, dimensions: [width, height], isFinished: false } }, [bitmap]);
+        state.frameI++;
+
+        console.table({
+          seekMs: t1 - t0,
+          bitmapMs: t2 - t1,
+        });
+      }
+    } finally {
+      state.isDecoding = false;
+    }
+  }
 
   function showOpenStreamingWindowWarning() {
     setShowStreamingWindowWarning(true);
@@ -165,33 +214,14 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
       formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
     } else if (data.videoRenderRequest) {
-      const { status } = data.videoRenderRequest;
-
-      async function produceFrame() {
-        const { width, height } = data.videoRenderRequest;
-
-        await seekTo(refVideo, currFrameI / formData.targetFps);
-
-        const pixels = getVideoPixelData(refVideo, refCanvas, width, height);
-
-        if (!pixels) return;
-
-        worker.postMessage({ videoRenderFrame: { pixels, width, height } }, [pixels.buffer]);
-
-        currFrameI++;
-      }
+      const { status, dimensions } = data.videoRenderRequest;
 
       if (status === "need-frame") {
-        if (bufferedFrames < MAX_BUFFERED_VIDEO_FRAMES) {
-          bufferedFrames++;
-          produceFrame();
-        }
+        videoDecodeState.dimensions = dimensions;
+        void pumpVideoFrames();
       } else if (status === "frame-consumed") {
-        bufferedFrames--;
-
-        if (bufferedFrames === 0) {
-          produceFrame();
-        }
+        videoDecodeState.nBufferedFrames = Math.max(0, videoDecodeState.nBufferedFrames - 1);
+        void pumpVideoFrames();
       } else {
         throw new Error(`Invalid videoRenderRequest status: ${status}`);
       }
@@ -240,6 +270,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         // send the image buffer directly to Rust instead of relying on support from Rust crates).
         setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
       }
+
+      refVideo.src = "";
     } else if (file.type.startsWith("video/")) {
       const src = URL.createObjectURL(file);
       refVideo.src = src;

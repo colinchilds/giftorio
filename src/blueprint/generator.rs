@@ -98,7 +98,7 @@ impl<'a> BlueprintGenerator<'a> {
                 w if w > 0 => (w * args.target_fps).div_ceil(1000 * frames_per_cb),
                 _ => 1,
             };
-            dim = frame_data.dimensions();
+            dim = frame_data.out_dim();
             frame_info = Some(FrameInfo {
                 curr_frame: frame_data.next().await?.unwrap(),
                 frame_data,

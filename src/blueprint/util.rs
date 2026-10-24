@@ -5,10 +5,10 @@ use wasm_bindgen::*;
 pub fn write_to(writer: &mut dyn io::Write, buf: &[u8]) -> Result<(), JsValue> {
     writer.write_all(buf).map_js_err("Write error")
 }
-pub fn write_json_trimmed_to<T>(writer: &mut dyn io::Write, value: &T) -> Result<(), JsValue>
-where
-    T: ?Sized + serde::Serialize,
-{
+pub fn write_json_trimmed_to<T: ?Sized + serde::Serialize>(
+    writer: &mut dyn io::Write,
+    value: &T,
+) -> Result<(), JsValue> {
     let json_bytes = serde_json::to_vec(value).map_js_err("Write error")?;
     write_to(writer, &json_bytes[1..json_bytes.len() - 1]) // Remove braces
 }

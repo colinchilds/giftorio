@@ -5,3 +5,5 @@ export interface FormElementValue {
   tooltip?: string;
   type: string;
 }
+
+export type WasmSharedMemory = { memory: WebAssembly.Memory; ptr: number; len: number };
