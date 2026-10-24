@@ -25,12 +25,7 @@ pub fn generate_lamps(
     base_ent_n: u32,
     start_pos: DVec2,
     args: &BlueprintArgs,
-) -> (
-    Vec<BlueprintEntity>,
-    Vec<Wire>,
-    u32,
-    (Option<u32>, Option<u32>),
-) {
+) -> (ObjectGeneratorOutput, (Option<u32>, Option<u32>)) {
     use crate::blueprint::models::ImageRotation::*;
 
     let mut ents = Vec::new();
@@ -78,7 +73,7 @@ pub fn generate_lamps(
                 });
             } else {
                 let sig = Arc::clone(&signals[index]);
-                lamp = lamp.with_control_behavior(ControlBehavior::LampBlueprintControlBehavior {
+                lamp = lamp.with_control_behavior(ControlBehavior::Lamp {
                     use_colors: true,
                     color_mode: if args.grayscale_bits > 0 { 1 } else { 2 },
                     red_signal: (args.grayscale_bits > 0).then(|| Arc::clone(&sig)),
@@ -122,6 +117,10 @@ pub fn generate_lamps(
             top_left_ent_n = prev_ent_n;
         }
     }
-    let next_ent_n = get_ent_num(grid_dim.y - 1, grid_dim.x - 1) + 1;
-    return (ents, wires, next_ent_n, (top_left_ent_n, top_right_ent_n));
+    let output = ObjectGeneratorOutput {
+        entities: ents,
+        wires,
+        next_ent_n: get_ent_num(grid_dim.y - 1, grid_dim.x - 1) + 1,
+    };
+    (output, (top_left_ent_n, top_right_ent_n))
 }

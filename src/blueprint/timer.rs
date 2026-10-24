@@ -22,7 +22,7 @@ pub fn generate_timer(
     frames_per_comb: u32,
     args: &BlueprintArgs,
 ) -> (Vec<BlueprintEntity>, Vec<Wire>) {
-    let ts = &args.timing_sigs;
+    let ts = &args.timing_signals;
     let (sig_f, sig_s, sig_t) = (&ts.f, &ts.s, &ts.t);
 
     let gray_bits = args.grayscale_bits;
@@ -35,29 +35,25 @@ pub fn generate_timer(
             index: 1,
             filters: vec![BlueprintLogisticFilter {
                 index: 1,
-                type_: sig_t.type_.clone(),
-                name: sig_t.name.clone(),
+                type_: Arc::clone(&sig_t.type_),
+                name: Arc::clone(&sig_t.name),
                 quality: sig_t.quality.clone(),
                 comparator: Some(CompStr::Eq),
                 count: 1,
             }],
         }],
     };
-    en = en.with_control_behavior(
-        ControlBehavior::ConstantCombinatorBlueprintControlBehavior { sections },
-    );
+    en = en.with_control_behavior(ControlBehavior::ConstantCombinator { sections });
     ents.push(en.with_tag("incrementer"));
 
     let mut en = BlueprintEntity::new(2, Arc::clone(&DEC_CB), TIMER2_POS).with_direction(DIR_R);
-    let condition = DeciderCombinatorCondition::new(sig_t.clone(), stop as i32, CompStr::Lt);
+    let condition = DeciderCombinatorCondition::new(Arc::clone(sig_t), stop as i32, CompStr::Lt);
     let decider_conditions = DeciderCombinatorParameters {
         conditions: vec![condition],
-        outputs: vec![DeciderCombinatorOutput::new(Arc::from(sig_t.clone()), None)],
+        outputs: vec![DeciderCombinatorOutput::new(Arc::clone(sig_t), None)],
     };
     en = en.with_tag("base_timer").with_description("[virtual-signal=signal-T] increments 60 times per second up to the GIF's frame count, then resets to 0. It determines the current frame.");
-    ents.push(en.with_control_behavior(
-        ControlBehavior::DeciderCombinatorBlueprintControlBehavior { decider_conditions },
-    ));
+    ents.push(en.with_control_behavior(ControlBehavior::DeciderCombinator { decider_conditions }));
 
     let en = BlueprintEntity::new(3, Arc::clone(&ARI_CB), TIMER3_POS).with_direction(DIR_R);
     let conds = arithmetic_conds!(sig_t - 1 => sig_t);
@@ -87,5 +83,5 @@ pub fn generate_timer(
         wires.push([6, WIRE_OUT_R, 3, WIRE_OUT_R]);
     }
 
-    return (ents, wires);
+    (ents, wires)
 }

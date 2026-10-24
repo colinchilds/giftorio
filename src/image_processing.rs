@@ -6,7 +6,7 @@ use crate::progress::set_progress;
 use crate::util::{MapJsErr, js_num};
 use glam::{DVec2, UVec2, uvec2};
 use image::{AnimationDecoder, ImageDecoder, imageops};
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 use wasm_bindgen::prelude::*;
 
 #[inline(always)]
@@ -17,7 +17,7 @@ fn now_ms() -> f64 {
 pub type FrameCallback = Box<
     dyn for<'a> Fn(
             Result<&'a image::DynamicImage, &'a JsValue>,
-        ) -> std::pin::Pin<Box<dyn Future<Output = ()> + 'a>>
+        ) -> Pin<Box<dyn Future<Output = Result<(), JsValue>> + 'a>>
         + 'static,
 >;
 
@@ -29,7 +29,6 @@ pub struct FrameData<'a> {
     frame_decoder: FrameDecoder<'a>,
     in_dim: UVec2,
     in_n_frames: u32,
-    info: AnimationInfo,
     is_first: bool,
     on_frame: Option<FrameCallback>,
     out_dim_raw: DVec2,
@@ -73,7 +72,7 @@ impl<'a> FrameData<'a> {
         on_frame: Option<FrameCallback>,
         js_next_frame: Option<js_sys::Function<JsVideoFrameCallback>>,
     ) -> Result<Self, JsValue> {
-        let frame_data = get_frames(image_data, &args, js_next_frame)?;
+        let frame_data = get_frames(image_data, args, js_next_frame)?;
         let in_dim = frame_data.dimensions();
         let n_frames = frame_data.n_frames();
         let scale_factor = (args.max_size as f64 / in_dim.x as f64)
@@ -99,7 +98,6 @@ impl<'a> FrameData<'a> {
             frame_decoder: frame_data.frame_decoder,
             in_dim,
             in_n_frames: n_frames,
-            info: frame_data.info,
             is_first: true,
             on_frame,
             out_dim_raw: scale_factor * DVec2::from(in_dim),
@@ -132,7 +130,7 @@ impl<'a> FrameData<'a> {
                 let frame = self.convert_frame(frame);
 
                 if let Some(callback) = &self.on_frame {
-                    callback(frame.as_ref()).await;
+                    callback(frame.as_ref()).await?;
                 }
 
                 let frame = frame.map(|mut frame| {
@@ -215,7 +213,7 @@ impl FrameData<'_> {
         if self.args.grayscale_bits > 0 {
             img = image::DynamicImage::ImageLuma8(img.to_luma8());
         }
-        img = match self.args.sampling_filter {
+        img = match self.args.resampling_filter {
             ResamplingFilter::Thumbnail => img.thumbnail(out_dim.x, out_dim.y),
             filter => img.resize(
                 out_dim.x,
@@ -269,20 +267,19 @@ pub fn get_frames<'a>(
     let cursor = std::io::Cursor::new(data);
     let info: AnimationInfo;
     let dimensions: UVec2;
-    let image_type = args.image_metadata.image_type.as_ref();
 
     Ok(ImageFrameData {
-        frame_decoder: match image_type.expect("image type required").as_str() {
+        frame_decoder: match args.image_metadata.mime_type.as_str() {
             "image/gif" => {
                 let decoder = image::codecs::gif::GifDecoder::new(cursor).map_js_err()?;
                 dimensions = UVec2::from(decoder.dimensions());
-                info = animation_info(&data)?;
+                info = animation_info(data)?;
                 FrameDecoder::new(decoder.into_frames())
             }
             "image/webp" => {
                 let decoder = image::codecs::webp::WebPDecoder::new(cursor).map_js_err()?;
                 dimensions = UVec2::from(decoder.dimensions());
-                info = animation_info(&data)?;
+                info = animation_info(data)?;
                 FrameDecoder::new(decoder.into_frames())
             }
             t if t.starts_with("image/") => {
@@ -292,7 +289,7 @@ pub fn get_frames<'a>(
                     duration: Duration::from_millis(if use_combs { 1000 } else { 0 }),
                     timestamps_ms: Some(vec![0]),
                 };
-                dimensions = UVec2::from(args.image_metadata.image_size.expect("No image size"));
+                dimensions = UVec2::from(args.image_metadata.dimensions.expect("No image size"));
                 let frames = image::Frames::new(Box::new(std::iter::once(Ok(image::Frame::new(
                     image::RgbaImage::from_raw(dimensions.x, dimensions.y, data.to_vec())
                         .expect("buffer length must be width * height * 4"),
@@ -306,12 +303,12 @@ pub fn get_frames<'a>(
                     duration: args
                         .image_metadata
                         .duration
-                        .map(|v| Duration::from_secs_f64(v))
+                        .map(Duration::from_secs_f64)
                         .expect("Duration must be provided when decoding unknown video"),
                     timestamps_ms: Some(vec![0]),
                 };
 
-                dimensions = UVec2::from(args.image_metadata.image_size.expect("No image size"));
+                dimensions = UVec2::from(args.image_metadata.dimensions.expect("No dimensions"));
                 FrameDecoder {
                     js_next_frame,
                     frames: None,
@@ -337,7 +334,7 @@ impl<'a> FrameDecoder<'a> {
     }
     async fn next_frame(&mut self) -> Result<Option<image::ImageResult<image::Frame>>, JsValue> {
         if let Some(ref mut frames) = self.frames {
-            return Ok(frames.next());
+            Ok(frames.next())
         } else if let Some(js_next_frame) = &self.js_next_frame {
             #[derive(serde::Deserialize)]
             struct JsVideoFrameData {
@@ -358,9 +355,9 @@ impl<'a> FrameDecoder<'a> {
             if js_frame.is_finished {
                 return Ok(None);
             }
-            return Ok(None);
+            Ok(None)
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 }

@@ -13,7 +13,7 @@ where
     write_to(writer, &json_bytes[1..json_bytes.len() - 1]) // Remove braces
 }
 
-pub fn invert_wires(ents: &mut Vec<BlueprintEntity>, wires: &mut Vec<Wire>) {
+pub fn invert_wires(ents: &mut [BlueprintEntity], wires: &mut [Wire]) {
     #[inline(always)]
     fn get_swap(wire_id: u32) -> u32 {
         match wire_id {
@@ -25,9 +25,8 @@ pub fn invert_wires(ents: &mut Vec<BlueprintEntity>, wires: &mut Vec<Wire>) {
         }
     }
     for e in ents.iter_mut() {
-        if let Some(ControlBehavior::DeciderCombinatorBlueprintControlBehavior {
-            decider_conditions,
-        }) = e.control_behavior.as_mut()
+        if let Some(ControlBehavior::DeciderCombinator { decider_conditions }) =
+            e.control_behavior.as_mut()
         {
             decider_conditions.swap_networks();
         }
@@ -63,7 +62,7 @@ pub fn color_frame_to_outputs(frame: &image::DynamicImage) -> Result<Vec<i32>, J
         let rgb = frame.to_rgb8();
         let mut outputs = Vec::with_capacity((frame.width() * frame.height()) as usize);
 
-        for chunk in rgb.as_raw().chunks_exact(3) {
+        for chunk in rgb.as_raw().as_chunks::<3>().0 {
             outputs.push(rgb_to_int(chunk[0], chunk[1], chunk[2]) as i32);
         }
 
@@ -98,30 +97,30 @@ pub fn grayscale_frames_to_outputs(
 
     match grayscale_bits {
         1 => {
-            for i in 0..num_pixels {
+            for (i, output) in outputs.iter_mut().enumerate() {
                 let mut packed: u32 = 0;
                 for (j, img) in luma_images.iter().enumerate() {
                     packed |= ((img.as_raw()[i] >= GRAYSCALE_THRESH) as u32) << j;
                 }
-                outputs[i] = packed as i32;
+                *output = packed as i32;
             }
         }
         4 => {
-            for i in 0..num_pixels {
+            for (i, output) in outputs.iter_mut().enumerate() {
                 let mut packed: u32 = 0;
                 for (j, img) in luma_images.iter().enumerate() {
                     packed |= ((img.as_raw()[i] >> 4) as u32) << (j * 4);
                 }
-                outputs[i] = packed as i32;
+                *output = packed as i32;
             }
         }
         8 => {
-            for i in 0..num_pixels {
+            for (i, output) in outputs.iter_mut().enumerate() {
                 let mut packed: u32 = 0;
                 for (j, img) in luma_images.iter().enumerate() {
                     packed |= (img.as_raw()[i] as u32) << (j * 8);
                 }
-                outputs[i] = packed as i32;
+                *output = packed as i32;
             }
         }
         _ => return Err(JsValue::from_str("Unsupported grayscale bit depth")),
@@ -216,7 +215,7 @@ pub fn format_duration(ms: u32) -> String {
     let seconds = total_seconds % 60;
     let milliseconds = ms % 1000;
 
-    return format!("{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}");
+    format!("{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}")
 }
 
 /// Checks if the value is the default value for the type.

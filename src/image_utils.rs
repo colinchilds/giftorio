@@ -3,6 +3,7 @@ use std::time::Duration;
 pub struct AnimationInfo {
     pub frames: u32,
     pub duration: Duration,
+    #[allow(dead_code)]
     pub timestamps_ms: Option<Vec<u64>>,
 }
 

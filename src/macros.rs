@@ -9,17 +9,17 @@ macro_rules! log {
 }
 
 /// Creates a constant value that is lazily evaluated once.
-macro_rules! lazy_const {
+macro_rules! lazy_arc_const {
     (pub $name:ident: $type:ident = $value:expr) => {
-        pub const $name: std::sync::LazyLock<std::sync::Arc<$type>> =
+        pub static $name: std::sync::LazyLock<std::sync::Arc<$type>> =
             std::sync::LazyLock::new(|| std::sync::Arc::from($value));
     };
     ($name:ident: $type:ident = $value:expr) => {
-        const $name: std::sync::LazyLock<std::sync::Arc<$type>> =
+        static $name: std::sync::LazyLock<std::sync::Arc<$type>> =
             std::sync::LazyLock::new(|| std::sync::Arc::from($value));
     };
 }
 
-pub(crate) use lazy_const;
+pub(crate) use lazy_arc_const;
 #[allow(unused_imports)]
 pub(crate) use log;

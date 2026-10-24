@@ -54,7 +54,7 @@ pub fn load_comb_pos_json(json_bytes: &[u8]) -> Result<(), JsValue> {
 
             // Decode blueprint string (removing leading "0" prefix)
             let b64 = STANDARD
-                .decode(entry.blueprint[1..].as_bytes())
+                .decode(&entry.blueprint.as_bytes()[1..])
                 .map_js_err("base64 error")?;
             let mut zlib = flate2::read::ZlibDecoder::new(&b64[..]);
             let mut buf = String::new();
@@ -76,7 +76,7 @@ pub fn load_comb_pos_json(json_bytes: &[u8]) -> Result<(), JsValue> {
             }
 
             Ok(CombinatorPositionData {
-                compression: cb.compression.clone(),
+                compression: cb.compression,
                 dim: bounds.end - bounds.start,
                 grayscale_bits: cb.grayscale_bits.to_vec(),
                 blueprint,
@@ -86,6 +86,14 @@ pub fn load_comb_pos_json(json_bytes: &[u8]) -> Result<(), JsValue> {
 
     COMB_POS_DATA.replace(Some(data_iter.collect::<Result<Box<_>, JsValue>>()?));
     Ok(())
+}
+
+pub struct GenerateCombinatorsOutput {
+    pub data_cbs: ObjectGeneratorOutput,
+
+    pub other_ents: Vec<BlueprintEntity>,
+    pub in_ent_n: u32,
+    pub out_ent_n: u32,
 }
 
 /// Generates combinator entities and wiring for each frame group.
@@ -101,8 +109,7 @@ pub fn load_comb_pos_json(json_bytes: &[u8]) -> Result<(), JsValue> {
 ///
 /// # Returns
 ///
-/// A tuple containing combinator entities, their wires, and
-/// (first connection entity, target output entity, next entity number).
+/// ObjectGeneratorOutput (containing data comb entities), and (other_entities, first connection entity, target output entity).
 ///
 /// Does not populate combinators with data.
 pub fn generate_combinators(
@@ -112,15 +119,7 @@ pub fn generate_combinators(
     start_pos: DVec2,
     max_cols_per_grp: u32,
     args: &BlueprintArgs,
-) -> Result<
-    (
-        Vec<BlueprintEntity>,
-        Vec<BlueprintEntity>,
-        Vec<Wire>,
-        (u32, u32, u32),
-    ),
-    JsValue,
-> {
+) -> Result<GenerateCombinatorsOutput, JsValue> {
     // Positions for combinators, for different widths.
     // TODO: Don't recalculate this for every group
     let mut best_pos_data: Option<CombinatorPositionData> = None;
@@ -163,7 +162,8 @@ pub fn generate_combinators(
 
     // Finds the position for the combinator with the given tag, based off the blueprint string we decoded earlier
     let get_pos = |tag: &str| -> DVec2 {
-        let mut pos = pos_dict.get(tag).expect(&format!("No '{tag}'!")).position + base_offset;
+        let entry = pos_dict.get(tag).unwrap_or_else(|| panic!("No '{tag}'!"));
+        let mut pos = entry.position + base_offset;
         pos.y -= height;
         pos
     };
@@ -172,7 +172,7 @@ pub fn generate_combinators(
     // Note: signal compression is auto-disabled if generating a static image
     if use_delta_comp {
         let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("delay"));
-        let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
+        let cb_output = DeciderCombinatorOutput::new(Arc::clone(&SIG_EACH), None);
         let cond = DeciderCombinatorCondition::new(SIG_EACH.clone(), 0, CompStr::Ne);
         let dc = DeciderCombinatorParameters {
             conditions: vec![cond],
@@ -186,12 +186,12 @@ pub fn generate_combinators(
 
         let desc = "Memory cell for delta compression. This holds all the signal values, then allows us to set any signal value by applying a delta. We can reach any number in one tick using overflow logic.";
         let mut en = BlueprintEntity::new(curr_ent_n, Arc::clone(&DEC_CB), get_pos("memory"));
-        let cb_output = DeciderCombinatorOutput::new(Arc::from(SIG_EACH.clone()), None);
+        let cb_output = DeciderCombinatorOutput::new(Arc::clone(&SIG_EACH), None);
         let dc = DeciderCombinatorParameters {
             conditions: vec![
                 DeciderCombinatorCondition::new(SIG_EACH.clone(), 0, CompStr::Ne)
                     .with_first_signal_networks(CircuitNetworkSelection::green()),
-                DeciderCombinatorCondition::new(args.timing_sigs.t.clone(), 0, CompStr::Ne)
+                DeciderCombinatorCondition::new(args.timing_signals.t.clone(), 0, CompStr::Ne)
                     .with_compare_type(CompareTypeString::And)
                     .with_first_signal_networks(CircuitNetworkSelection::red()),
             ],
@@ -212,7 +212,7 @@ pub fn generate_combinators(
         let desc = "Shifts the input numbers until they are in the range of the current frame.";
         let ac = ArithmeticCombinatorParameters {
             first_signal: Some(SIG_EACH.clone()),
-            second_signal: Some(args.timing_sigs.f.clone()),
+            second_signal: Some(args.timing_signals.f.clone()),
             second_constant: 0,
             operation: ArithmeticCombinatorParameterOperation::Shr,
             output_signal: Some(SIG_EACH.clone()),
@@ -251,8 +251,8 @@ pub fn generate_combinators(
         first_connection_ent_n = Some(curr_ent_n);
     }
 
-    let first_connection_ent = first_connection_ent_n.unwrap();
-    let comb_out_ent_n = if gray_bits > 0 {
+    let in_ent_n = first_connection_ent_n.unwrap();
+    let out_ent_n = if gray_bits > 0 {
         (curr_ent_n - 1).max(base_ent_n)
     } else {
         entity_idx_by_tag!(other_ents, "memory comb").unwrap_or((curr_ent_n - 1).max(base_ent_n))
@@ -278,7 +278,11 @@ pub fn generate_combinators(
     let y_offsets = y_offsets.collect::<Vec<_>>();
     let hitbox_offsets = x_offsets.flat_map(|x| y_offsets.iter().map(move |&y| dvec2(x, y)));
     let hitbox_offsets = hitbox_offsets.collect::<Vec<_>>();
-    let target_name = if use_const_cbs { CONSTANT_COMB } else { DEC_CB };
+    let target_name = Arc::clone(if use_const_cbs {
+        &CONSTANT_COMB
+    } else {
+        &DEC_CB
+    });
 
     // Generates combinators up to down, then left to right.
     for tick_i in 0..ticks_per_group as usize {
@@ -339,16 +343,20 @@ pub fn generate_combinators(
         grid_pos.x += 1;
     }
     wires.push([
-        first_connection_ent,
+        in_ent_n,
         WIRE_R,
         entity_idx_by_tag!(data_cbs, "first data comb").expect("No first data comb!"),
         WIRE_R,
     ]);
 
-    return Ok((
+    Ok(GenerateCombinatorsOutput {
+        data_cbs: ObjectGeneratorOutput {
+            entities: data_cbs,
+            wires,
+            next_ent_n: curr_ent_n,
+        },
         other_ents,
-        data_cbs,
-        wires,
-        (first_connection_ent, comb_out_ent_n, curr_ent_n),
-    ));
+        in_ent_n,
+        out_ent_n,
+    })
 }

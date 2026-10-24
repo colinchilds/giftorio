@@ -1,10 +1,16 @@
 #![allow(dead_code)]
 
-use crate::blueprint::{constants::*, dvec2_xy::*, util::*};
+use crate::blueprint::{constants::*, dvec2_xy, util::*};
 pub use crate::models::*;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+
+pub struct ObjectGeneratorOutput {
+    pub entities: Vec<BlueprintEntity>,
+    pub wires: Vec<Wire>,
+    pub next_ent_n: u32,
+}
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArithmeticCombinatorParameterOperation {
@@ -52,7 +58,7 @@ impl ArithmeticCombinatorParameterOperation {
 pub struct ArithmeticCombinatorParameters {
     /// First signal to use in an operation. If not specified, the second argument will be the value of first_constant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub first_signal: Option<SignalID>,
+    pub first_signal: Option<Arc<SignalID>>,
 
     /// When not specified, defaults to "*".
     #[serde(default, skip_serializing_if = "is_default")]
@@ -60,7 +66,7 @@ pub struct ArithmeticCombinatorParameters {
 
     /// Second signal to use in an operation. If not specified, the second argument will be the value of second_constant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub second_signal: Option<SignalID>,
+    pub second_signal: Option<Arc<SignalID>>,
 
     /// Constant to use as the second argument of the operation. Has no effect when second_signal is set. Defaults to 0.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -68,7 +74,7 @@ pub struct ArithmeticCombinatorParameters {
 
     /// Specifies the signal to output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_signal: Option<SignalID>,
+    pub output_signal: Option<Arc<SignalID>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -320,16 +326,16 @@ impl ComparatorString {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ControlBehavior {
-    ArithmeticCombinatorBlueprintControlBehavior {
+    ArithmeticCombinator {
         arithmetic_conditions: ArithmeticCombinatorParameters,
     },
-    ConstantCombinatorBlueprintControlBehavior {
+    ConstantCombinator {
         sections: LogisticSections,
     },
-    DeciderCombinatorBlueprintControlBehavior {
+    DeciderCombinator {
         decider_conditions: DeciderCombinatorParameters,
     },
-    LampBlueprintControlBehavior {
+    Lamp {
         /// Defaults to false.
         #[serde(default, skip_serializing_if = "is_default")]
         use_colors: bool,
@@ -352,12 +358,12 @@ pub enum ControlBehavior {
 }
 impl ControlBehavior {
     pub const fn arithmetic(arithmetic_conditions: ArithmeticCombinatorParameters) -> Self {
-        Self::ArithmeticCombinatorBlueprintControlBehavior {
+        Self::ArithmeticCombinator {
             arithmetic_conditions,
         }
     }
     pub const fn decider(decider_conditions: DeciderCombinatorParameters) -> Self {
-        Self::DeciderCombinatorBlueprintControlBehavior { decider_conditions }
+        Self::DeciderCombinator { decider_conditions }
     }
 }
 
@@ -414,7 +420,7 @@ impl CompareTypeString {
 pub struct DeciderCombinatorCondition {
     /// Defaults to blank
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub first_signal: Option<SignalID>,
+    pub first_signal: Option<Arc<SignalID>>,
 
     /// Which circuit networks (red/green) to read first_signal from. Defaults to both.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -436,7 +442,11 @@ pub struct DeciderCombinatorCondition {
     pub compare_type: CompareTypeString,
 }
 impl DeciderCombinatorCondition {
-    pub const fn new(first_signal: SignalID, constant: i32, comparator: ComparatorString) -> Self {
+    pub const fn new(
+        first_signal: Arc<SignalID>,
+        constant: i32,
+        comparator: ComparatorString,
+    ) -> Self {
         Self {
             first_signal: Some(first_signal),
             constant: Some(constant),
@@ -522,7 +532,7 @@ pub struct DeciderCombinatorParameters {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Icon {
-    pub signal: SignalID,
+    pub signal: Arc<SignalID>,
     pub index: u32,
 }
 
@@ -582,10 +592,8 @@ impl SignalID {
         }
     }
 
-    const DEFAULT_SIGNAL_TYPE: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("item"));
-
     pub fn default_signal_type() -> Arc<str> {
-        Arc::clone(&Self::DEFAULT_SIGNAL_TYPE)
+        Arc::clone(&DEFAULT_SIGNAL_TYPE)
     }
     pub fn default_quality() -> Option<Arc<str>> {
         Some(Arc::from("normal"))
@@ -595,7 +603,7 @@ impl SignalID {
         *value == SignalID::default_signal_type()
     }
     pub fn is_none_or_default_quality(value: &Option<Arc<str>>) -> bool {
-        *value == None || *value == SignalID::default_quality()
+        value.is_none() || *value == SignalID::default_quality()
     }
 }
 

@@ -34,5 +34,5 @@ where
 }
 
 pub fn set_progress(start: f64, end: f64, progress: f64, msg: &str) {
-    report_progress(progress * (end - start) + start, &msg);
+    report_progress(progress * (end - start) + start, msg);
 }

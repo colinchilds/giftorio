@@ -46,7 +46,7 @@ pub async fn run_blueprint(
     //     fn(js_sys::Uint8Array, js_sys::Number, js_sys::Number) -> js_sys::Undefined,
     // >,
 ) -> Result<JsValue, JsValue> {
-    use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
+    use blueprint::{encoder::BlueprintEncoder, generator::BlueprintGenerator};
     use image::GenericImageView;
     use image_processing::{FrameCallback, FrameData, JsVideoFrameCallback};
     use js_sys as js;
@@ -66,8 +66,8 @@ pub async fn run_blueprint(
     let on_frame = get_cb::<
         fn(JsValue, js::Number, js::Number, js::Number, js::Number) -> js::Undefined,
     >(&callbacks, "onFrame")?;
-    let should_show_preview = get_cb::<fn() -> js::Boolean>(&callbacks, &"shouldShowPreview")?;
-    let yield_to_js = get_cb::<fn() -> js::Promise>(&callbacks, &"yieldToJs")?;
+    let should_show_preview = get_cb::<fn() -> js::Boolean>(&callbacks, "shouldShowPreview")?;
+    let yield_to_js = get_cb::<fn() -> js::Promise>(&callbacks, "yieldToJs")?;
 
     let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
     let mut frame_data: Option<FrameData> = None;
@@ -94,22 +94,20 @@ pub async fn run_blueprint(
             let next_yield_time = Rc::clone(&next_yield_time);
 
             Box::pin(async move {
-                let show_preview = should_show_preview.call0(&JsValue::NULL).unwrap_throw();
+                let show_preview = should_show_preview.call0(&JsValue::NULL)?;
                 let show_preview = show_preview.as_bool() == Some(true);
                 let now = now_ms();
 
                 // yield to js so preview can be updated
                 if show_preview || (now > next_yield_time.get()) {
                     next_yield_time.set(now + SYNC_TIME_MS);
-                    JsFuture::from(yield_to_js.call0(&JsValue::NULL).unwrap_throw())
-                        .await
-                        .unwrap_throw();
+                    JsFuture::from(yield_to_js.call0(&JsValue::NULL)?).await?;
                 }
                 if !show_preview {
-                    return;
+                    return Ok(());
                 }
 
-                let img = result.unwrap_throw();
+                let img = result?;
                 let rgba = match img.as_rgba8() {
                     Some(rgba) => rgba,
                     _ => &img.to_rgba8(),
@@ -120,15 +118,13 @@ pub async fn run_blueprint(
                 let mem = wasm_bindgen::memory();
                 let args = (&mem, &js_num(ptr), &js_num(len), &js_num(w), &js_num(h));
 
-                on_frame.call(&JsValue::NULL, args).unwrap_throw();
+                on_frame.call(&JsValue::NULL, args)?;
+                Ok(())
             })
         });
 
-        let js_next_frame = args
-            .image_metadata
-            .image_type
-            .as_ref()
-            .is_some_and(|v| v.starts_with("video/"))
+        let js_next_frame = (args.image_metadata.mime_type)
+            .starts_with("video/")
             .then(|| js_next_frame.clone());
 
         log!("DASASASASASASASHERE");
@@ -139,10 +135,12 @@ pub async fn run_blueprint(
     }
 
     // Custom writer that invokes a callback whenever chunk size is reached.
-    let writer = StreamingWriter::new(1 * 1024 * 1024, |chunk| {
+    let writer = StreamingWriter::new(2 * 1024 * 1024, |chunk| {
         let data = js::Uint8Array::from(chunk.as_slice());
         let promise = on_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
-        promise_q.borrow_mut().back_mut().map(|q| q.push(promise));
+        if let Some(q) = promise_q.borrow_mut().back_mut() {
+            q.push(promise)
+        }
     });
 
     // Yields JSON or compressed blueprint in chunks
@@ -153,7 +151,10 @@ pub async fn run_blueprint(
 
     let flush = async || -> Result<(), JsValue> {
         // Get the earliest list of promises from the queue
-        if let Some(mut q) = std::mem::take(&mut *promises.borrow_mut()).pop_front() {
+        if let Some(mut q) = {
+            let mut promises = promises.borrow_mut();
+            std::mem::take(&mut *promises).pop_front()
+        } {
             for promise in q.drain(..) {
                 JsFuture::from(promise).await?;
             }
@@ -164,7 +165,7 @@ pub async fn run_blueprint(
     promises.borrow_mut().push_back(vec![]);
 
     // `encoder.next()` may generate a series of chunks
-    while let Some(_) = encoder.next().await.unwrap_throw() {
+    while encoder.next().await.unwrap_throw().is_some() {
         flush().await?; // Wait for all those chunks to be sent
         promises.borrow_mut().push_back(vec![]); // Repopulate
     }

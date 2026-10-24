@@ -324,6 +324,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         };
       }
 
+      console.log(animationInfo());
+
       worker.postMessage({
         generate: {
           imageData: data,
@@ -333,11 +335,12 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             displayMarginY: +formData.displayMarginY,
             flippedAxes: `${formData.flippedAxes}`,
             grayscaleBits: +formData.grayscaleBits,
-            imageMetadata: {
-              imageType: currFile()!.type,
-              imageSize: imageData() && [imageData()!.width, imageData()!.height],
-            },
             imageFilters: [],
+            imageMetadata: {
+              dimensions: [animationInfo()!.width, animationInfo()!.height],
+              duration: currFile()!.type.startsWith("video") ? refVideo.duration : null,
+              mimeType: currFile()!.type,
+            },
             imageRotation: `${formData.imageRotation}`,
             includePowerPoles: formData.includePowerPoles,
             maxGroupSize: +formData.maxGroupSize! || null,
@@ -347,15 +350,14 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             outputFormat: `${formData.outputFormat}`,
             powerPoleName: formData.powerPoleName,
             powerPoleQuality: formData.powerPoleQuality,
+            preferGreenWires: !!(formData.wireColor === "green"),
+            preferHorizontalWires: !!(formData.connectionDirection === "horizontal"),
             resamplingFilter: `${formData.resamplingFilter}`,
-            showPreview: showPreview(),
             signalCompression,
             signalSorting:
               formData.signalSorting === "auto" ? (formData.outputFormat === "json" ? "json" : "compression") : `${formData.signalSorting}`,
             targetFps: +formData.targetFps,
             timingSignals: timingSignals(),
-            useGreenLampWires: !!(formData.wireColor === "green"),
-            useHorizontalLampWires: !!(formData.connectionDirection === "horizontal"),
           },
         },
       });
