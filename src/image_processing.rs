@@ -23,7 +23,6 @@ pub struct FrameData<'a> {
     frame_decoder: FrameDecoder<'a>,
     in_dim: UVec2,
     in_frame_i: u32,
-    in_n_frames: u32,
     is_first: bool,
     on_frame: Option<FrameCallback>,
     out_dim_raw: DVec2,
@@ -72,7 +71,6 @@ impl<'a> FrameData<'a> {
     ) -> Result<Self, JsValue> {
         let frame_data = get_frames(image_data, args, js_next_frame)?;
         let in_dim = frame_data.dimensions();
-        let n_frames = frame_data.n_frames();
         let scale_factor = (args.max_size as f64 / in_dim.x as f64)
             .min(args.max_size as f64 / in_dim.y as f64)
             .min(1.0);
@@ -96,7 +94,6 @@ impl<'a> FrameData<'a> {
                 frame_decoder: frame_data.frame_decoder,
                 in_dim,
                 in_frame_i: 0,
-                in_n_frames: n_frames,
                 is_first: true,
                 on_frame,
                 out_dim_raw: scale_factor * DVec2::from(in_dim),
@@ -254,9 +251,6 @@ pub struct ImageFrameData<'a> {
 impl ImageFrameData<'_> {
     pub fn dimensions(&self) -> UVec2 {
         self.dimensions
-    }
-    pub fn n_frames(&self) -> u32 {
-        self.info.frames
     }
 }
 

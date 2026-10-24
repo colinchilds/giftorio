@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+#[allow(dead_code)]
 pub struct AnimationInfo {
     pub frames: u32,
     pub duration: Duration,

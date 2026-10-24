@@ -543,7 +543,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
           loop
           playsinline
           classList={{
-            "opacity-0": showPreview(),
+            "opacity-0": isGenerating() && showPreview(),
           }}
         />
       </div>
