@@ -1,3 +1,4 @@
+import { ALL_FORMATS, BlobSource, Input, VideoSampleSink } from "mediabunny";
 import init, {
   init as prepare_wasm,
   run_blueprint,
@@ -9,47 +10,6 @@ import { type WasmSharedMemory } from "./types";
 import { BASE_URL, nullify } from "./utils";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
-type VideoFrameMessage = {
-  bitmap?: ImageBitmap;
-  dimensions?: [number, number];
-  isFinished: boolean;
-};
-
-export function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
-  if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
-    return new Promise((resolve, reject) => {
-      video.addEventListener(
-        "loadedmetadata",
-
-        () => seekTo(video, time).then(resolve, reject),
-        { once: true },
-      );
-    });
-  } else if (Math.abs(video.currentTime - time) < 0.001) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve, reject) => {
-    function onSeeked() {
-      cleanup();
-      resolve();
-    }
-    function onError() {
-      cleanup();
-      reject(video.error ?? new Error("Video seek failed"));
-    }
-    function cleanup() {
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onError);
-    }
-
-    // Register first, so a fast seek cannot beat the listener.
-    video.addEventListener("seeked", onSeeked, { once: true });
-    video.addEventListener("error", onError, { once: true });
-
-    video.currentTime = time;
-  });
-}
 
 async function main() {
   const wasmReadyPromises = {
@@ -83,33 +43,7 @@ async function main() {
 
   syncChannel.port1.onmessage = () => syncQ.shift()?.();
 
-  const videoFrameQueue: VideoFrameMessage[] = [];
-  const videoFrameWaiters: Array<(frame: VideoFrameMessage) => void> = [];
-
   let videoStreamFinished = false;
-
-  function enqueueVideoFrame(frame: VideoFrameMessage) {
-    if (frame.isFinished) {
-      videoStreamFinished = true;
-    }
-    const waiter = videoFrameWaiters.shift();
-    if (waiter) {
-      waiter(frame);
-    } else {
-      videoFrameQueue.push(frame);
-    }
-  }
-
-  function nextVideoFrame(): Promise<VideoFrameMessage> {
-    const frame = videoFrameQueue.shift();
-    if (frame) {
-      return Promise.resolve(frame);
-    } else if (videoStreamFinished) {
-      return Promise.resolve({ isFinished: true });
-    } else {
-      return new Promise((resolve) => videoFrameWaiters.push(resolve));
-    }
-  }
 
   // Immediately add event listeners
   addEventListener("message", async (evt) => {
@@ -132,11 +66,34 @@ async function main() {
     } else if (evt.data.showPreview) {
       const { showPreview } = evt.data.showPreview;
       state.shouldShowPreview = showPreview;
-    } else if (evt.data.videoRenderFrame) {
-      enqueueVideoFrame(evt.data.videoRenderFrame);
     } else if (evt.data.generate) {
       const { imageData, args: blueprintArgs } = evt.data.generate;
       const { outputFormat } = blueprintArgs;
+
+      let videoInput: Input | null = null;
+      let videoSink: VideoSampleSink | null = null;
+      let videoSamples: ReturnType<VideoSampleSink["samples"]> | null = null;
+
+      if (blueprintArgs.imageMetadata.mimeType.startsWith("video/")) {
+        videoInput = new Input({
+          source: new BlobSource(new Blob([imageData])),
+          formats: ALL_FORMATS,
+        });
+
+        const videoTrack = await videoInput.getPrimaryVideoTrack();
+        if (!videoTrack) {
+          throw new Error("No video track found");
+        }
+
+        if (!(await videoTrack.canDecode())) {
+          throw new Error("This browser cannot decode this video");
+        }
+
+        videoSink = new VideoSampleSink(videoTrack);
+        videoSamples = videoSink.samples();
+      }
+
+      console.log(videoInput);
 
       // Safe to do this now as we've already waited for init()
       if (wasmReadyPromises.setCombPosData === null) {
@@ -190,54 +147,43 @@ async function main() {
             }
           },
           async getFrameData({ inBuffer, dimensions }: { inBuffer: WasmSharedMemory; dimensions: [number, number] }) {
+            const { value: sample, done } = await videoSamples!.next();
+
+            if (done) {
+              return { isFinished: true };
+            }
+
             try {
-              // Start production when the consumer first needs a frame.
-              postMessage({ videoRenderRequest: { status: "need-frame", dimensions } });
+              const [width, height] = dimensions;
 
-              const frame = await nextVideoFrame();
-              if (frame.isFinished) {
-                return { isFinished: true };
+              const { canvas, ctx } = state;
+              if (!canvas || !ctx) {
+                throw new Error("Canvas is not initialized");
               }
 
-              const { bitmap, dimensions: frameDimensions } = frame;
-              const [width, height] = frameDimensions!;
-              if (!bitmap || width !== dimensions[0] || height !== dimensions[1]) {
-                bitmap?.close();
-                throw new Error("Unexpected video frame dimensions");
+              if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
               }
 
-              try {
-                const { canvas, ctx } = state;
-                if (!canvas || !ctx) {
-                  throw new Error("Canvas is not initialized");
-                }
+              // Mediabunny handles the sample's rotation and flip metadata.
+              sample.draw(ctx, 0, 0, width, height);
 
-                if (canvas.width !== width || canvas.height !== height) {
-                  canvas.width = width;
-                  canvas.height = height;
-                }
+              const pixels = ctx.getImageData(0, 0, width, height).data;
+              const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
 
-                // Reuse the SAME canvas used for preview rendering.
-                ctx.drawImage(bitmap, 0, 0, width, height);
-
-                const pixels = ctx.getImageData(0, 0, width, height).data;
-                const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
-
-                if (pixels.byteLength > dest.byteLength) {
-                  throw new Error("Video frame exceeds WASM buffer capacity");
-                }
-
-                dest.set(pixels);
-              } finally {
-                bitmap.close();
+              if (pixels.byteLength > dest.byteLength) {
+                throw new Error("Video frame exceeds WASM buffer capacity");
               }
 
-              postMessage({ videoRenderRequest: { status: "frame-consumed" } });
+              dest.set(pixels);
 
-              return { isFinished: false };
-            } catch (e) {
-              console.error(e);
-              throw e;
+              return {
+                isFinished: false,
+                mediaTime: sample.timestamp,
+              };
+            } finally {
+              sample.close();
             }
           },
           shouldShowPreview() {

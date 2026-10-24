@@ -169,7 +169,7 @@ pub async fn run_blueprint(
     }
 
     let mut stream_writer = encoder.finish()?;
-    stream_writer.finish().map_js_err()?;
+    stream_writer.finish().map_js_err("Stream finish err")?;
 
     flush().await?; // Flush tail
 

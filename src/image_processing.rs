@@ -1,8 +1,8 @@
-use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_S};
+use crate::constants::DEFAULT_FRAME_DELAY;
 use crate::image_utils::{AnimationInfo, animation_info, resize_dimensions};
 use crate::models::{ImageRotation::*, *};
 use crate::progress::set_progress;
-use crate::util::{MapJsErr, js_num, now_ms, wasm_shared_memory};
+use crate::util::{ResultJsExt, format_duration, js_num, now_ms, wasm_shared_memory};
 use glam::{DVec2, UVec2, uvec2};
 use image::{AnimationDecoder, ImageDecoder, imageops};
 use std::{pin::Pin, time::Duration};
@@ -18,18 +18,18 @@ pub type FrameCallback = Box<
 
 pub struct FrameData<'a> {
     args: &'a BlueprintArgs,
-    curr_n_ms: u32,
+    curr_n_us: u64,
     fps_timer: f64,
-    frame_i: usize,
     frame_decoder: FrameDecoder<'a>,
     in_dim: UVec2,
+    in_frame_i: u32,
     in_n_frames: u32,
     is_first: bool,
     on_frame: Option<FrameCallback>,
     out_dim_raw: DVec2,
+    out_frame_i: usize,
     out_n_frames: u32,
-    prev_frame: Option<(image::Frame, u32)>,
-    samp_i: u32,
+    prev_frame: Option<FrameWithTimestamp>,
 }
 
 impl FrameData<'_> {
@@ -53,11 +53,11 @@ impl FrameData<'_> {
         );
         uvec2(w, h)
     }
-    pub fn curr_duration_ms(&self) -> u32 {
-        self.curr_n_ms
+    pub fn curr_duration_us(&self) -> u64 {
+        self.frame_decoder.curr_n_us
     }
     pub fn curr_total_frames(&self) -> u32 {
-        self.samp_i
+        self.in_frame_i
     }
     pub fn total_frames(&self) -> u32 {
         self.out_n_frames
@@ -81,52 +81,61 @@ impl<'a> FrameData<'a> {
             ((n_ms as u64 * fps as u64) / 1000) as u32 + 1
         }
 
-        Ok(Self {
-            out_n_frames: match args.mode {
-                Mode::Static { .. } => 1,
-                _ => expected_output_frames(
-                    frame_data.info.duration.as_millis() as u32,
-                    args.target_fps.max(1),
-                ),
-            },
-            args,
-            curr_n_ms: 0,
-            fps_timer: now_ms(),
-            frame_i: 0,
-            frame_decoder: frame_data.frame_decoder,
-            in_dim,
-            in_n_frames: n_frames,
-            is_first: true,
-            on_frame,
-            out_dim_raw: scale_factor * DVec2::from(in_dim),
-            prev_frame: None,
-            samp_i: 0,
+        Ok({
+            let mut obj = Self {
+                out_n_frames: match args.mode {
+                    Mode::Static { .. } => 1,
+                    _ => expected_output_frames(
+                        frame_data.info.duration.as_millis() as u32,
+                        args.target_fps.max(1),
+                    ),
+                },
+                args,
+                curr_n_us: 0,
+                fps_timer: now_ms(),
+                frame_decoder: frame_data.frame_decoder,
+                in_dim,
+                in_frame_i: 0,
+                in_n_frames: n_frames,
+                is_first: true,
+                on_frame,
+                out_dim_raw: scale_factor * DVec2::from(in_dim),
+                out_frame_i: 0,
+                prev_frame: None,
+            };
+            obj.frame_decoder.dim = obj.out_dim_raw();
+            obj
         })
     }
 
     pub async fn next(&mut self) -> Result<Option<image::DynamicImage>, JsValue> {
         let mut frame: Option<image::Frame> = None;
+        let use_js_decode = matches!(self.frame_decoder.state, FrameDecoderState::JsFrames { .. });
 
-        if self.frame_i == 0 {
-            self.fps_timer = now_ms();
-            if matches!(self.args.mode, Mode::Static { .. }) {
-                frame = self.frame_decoder.next_frame(self.out_dim_raw()).await?;
-                if frame.is_none() {
-                    return Ok(None);
-                }
+        if matches!(self.args.mode, Mode::Static { .. }) {
+            if let Some(FrameWithTimestamp(f, timestamp)) = self.frame_decoder.next_frame().await? {
+                frame = Some(f);
+                self.curr_n_us = timestamp;
+            } else {
+                return Ok(None);
             }
+        }
+        if self.out_frame_i == 0 {
+            self.fps_timer = now_ms();
         }
 
         loop {
-            if self.prev_frame.is_some() && self.out_t_ms() <= self.curr_n_ms {
-                frame = Some(self.prev_frame.clone().unwrap().0);
-                self.samp_i += 1;
+            if self.out_t_us() <= self.curr_n_us
+                && let Some(prev) = &self.prev_frame
+            {
+                frame = Some(prev.0.clone());
+                self.out_frame_i += 1;
             }
 
             // Flush any remaining frames
             if let Some(frame) = frame {
                 let frame = self.convert_frame(frame);
-                if let Some(callback) = &self.on_frame {
+                if !use_js_decode && let Some(callback) = &self.on_frame {
                     callback(frame.as_ref()).await?;
                 }
                 let frame = frame.map(|mut frame| {
@@ -149,40 +158,53 @@ impl<'a> FrameData<'a> {
             }
 
             // Only get the next frame if we're past the current output time
-            if self.out_t_ms() >= self.curr_n_ms {
-                let Some(frame) = self.frame_decoder.next_frame(self.out_dim_raw()).await? else {
+            if self.out_t_us() >= self.curr_n_us {
+                let frame = self.frame_decoder.next_frame().await?;
+                let Some(FrameWithTimestamp(frame, timestamp)) = frame else {
                     return Ok(None);
                 };
-                let (ms, _) = frame.delay().numer_denom_ms(); // Delay is duration of the frame
-                let delay = if ms == 0 { DEFAULT_FRAME_DELAY_MS } else { ms };
 
-                self.curr_n_ms += delay;
-                self.prev_frame = Some((frame, self.curr_n_ms));
-                self.frame_i += 1;
+                self.curr_n_us = timestamp;
+                self.prev_frame = Some(FrameWithTimestamp(frame, self.curr_n_us));
+                self.in_frame_i += 1;
             }
 
             if self.is_first {
                 self.is_first = false;
             } else {
+                let duration: f64;
+                let curr_time: f64;
+                let progress: f64;
+
+                if use_js_decode {
+                    duration = self.args.image_metadata.duration.unwrap();
+                    progress = (self.out_frame_i as f64 / self.args.target_fps as f64) / duration;
+                    curr_time = self.curr_n_us as f64 / 1000.0 / 1000.0;
+                } else {
+                    duration = (self.out_n_frames * 1000) as f64 / self.args.target_fps as f64;
+                    progress = self.out_frame_i as f64 / self.out_n_frames as f64;
+                    curr_time = progress * duration;
+                }
+
                 set_progress(
                     0.10,
                     0.90,
-                    self.frame_i as f64 / self.in_n_frames as f64,
+                    progress,
                     &format!(
-                        "Processing frame {} / {}  ({:.1} FPS)",
-                        self.frame_i,
-                        self.in_n_frames,
-                        1000.0 * self.frame_i as f64 / (now_ms() - self.fps_timer)
+                        "Processing frame {}, {} / {}  ({:.1} FPS)",
+                        self.out_frame_i,
+                        format_duration((curr_time * 1000.0) as u128),
+                        format_duration((duration * 1000.0) as u128),
+                        1000.0 * self.out_frame_i as f64 / (now_ms() - self.fps_timer)
                     ),
                 );
             }
         }
     }
-}
-impl FrameData<'_> {
-    //// Returns the current output time in milliseconds.
-    fn out_t_ms(&self) -> u32 {
-        (self.samp_i * MS_PER_S as u32) / self.args.target_fps
+
+    //// Returns the current output time in microseconds.
+    fn out_t_us(&self) -> u64 {
+        (self.out_frame_i as u64 * 1000 * 1000) / self.args.target_fps as u64
     }
 
     /// Converts the input frame to the target output using the specified settings.
@@ -262,13 +284,13 @@ pub fn get_frames<'a>(
 
     match args.image_metadata.mime_type.as_str() {
         "image/gif" => {
-            let decoder = image::codecs::gif::GifDecoder::new(cursor).map_js_err()?;
+            let decoder = image::codecs::gif::GifDecoder::new(cursor).map_js_err("decode err")?;
             dimensions = UVec2::from(decoder.dimensions());
             info = animation_info(data)?;
             state = FrameDecoderState::NativeFrames(decoder.into_frames());
         }
         "image/webp" => {
-            let decoder = image::codecs::webp::WebPDecoder::new(cursor).map_js_err()?;
+            let decoder = image::codecs::webp::WebPDecoder::new(cursor).map_js_err("decode err")?;
             dimensions = UVec2::from(decoder.dimensions());
             info = animation_info(data)?;
             state = FrameDecoderState::NativeFrames(decoder.into_frames());
@@ -290,22 +312,20 @@ pub fn get_frames<'a>(
         t if t.starts_with("video/") => {
             info = AnimationInfo {
                 frames: 1,
-                duration: args
-                    .image_metadata
-                    .duration
-                    .map(Duration::from_secs_f64)
-                    .expect("Duration must be provided when decoding unknown video"),
-                timestamps_ms: Some(vec![0]),
+                duration: Duration::from_secs_f64(
+                    (args.image_metadata.duration).expect("Duration must be provided for video"),
+                ),
+                timestamps_ms: None,
             };
             dimensions = UVec2::from(args.image_metadata.dimensions.expect("No dimensions"));
-            let get_frame = js_next_frame.expect("Js next frame must be provided for videos");
+            let get_frame = js_next_frame.expect("JS next frame must be provided for videos");
             state = FrameDecoderState::JsFrames(get_frame);
         }
         t => return Err(JsValue::from_str(&format!("Unsupported image type: {t}"))),
     };
 
     Ok(ImageFrameData {
-        frame_decoder: FrameDecoder { state },
+        frame_decoder: FrameDecoder::new(state, dimensions),
         info,
         dimensions,
     })
@@ -316,44 +336,64 @@ enum FrameDecoderState<'a> {
     JsFrames(js_sys::Function<JsVideoFrameCallback>),
 }
 
+#[derive(Clone)]
+struct FrameWithTimestamp(image::Frame, u64);
 struct FrameDecoder<'a> {
+    curr_n_us: u64,
+    dim: UVec2,
     state: FrameDecoderState<'a>,
 }
 impl<'a> FrameDecoder<'a> {
-    async fn next_frame(&mut self, dimensions: UVec2) -> Result<Option<image::Frame>, JsValue> {
-        match &mut self.state {
-            FrameDecoderState::NativeFrames(frames) => frames.next().transpose().map_js_err(),
-            FrameDecoderState::JsFrames(get_next_frame) => {
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct JsVideoFrameData {
-                    pub is_finished: bool,
-                }
+    fn new(state: FrameDecoderState<'a>, dim: UVec2) -> FrameDecoder<'a> {
+        FrameDecoder {
+            curr_n_us: 0,
+            dim,
+            state,
+        }
+    }
 
-                let in_buf = vec![0u8; (dimensions.element_product() * 4) as usize];
+    async fn next_frame(&mut self) -> Result<Option<FrameWithTimestamp>, JsValue> {
+        Ok(match &mut self.state {
+            FrameDecoderState::NativeFrames(frames) => {
+                frames.next().transpose().map_js_err("image")?.map(|f| {
+                    let delay = f.delay();
+                    let output = FrameWithTimestamp(f, self.curr_n_us);
+                    let delay: std::time::Duration = if delay.numer_denom_ms().0 == 0 {
+                        DEFAULT_FRAME_DELAY
+                    } else {
+                        delay.into()
+                    };
+                    self.curr_n_us += delay.as_micros() as u64;
+                    output
+                })
+            }
+            FrameDecoderState::JsFrames(get_next_frame) => {
+                let in_buf = vec![0u8; (self.dim.element_product() * 4) as usize];
 
                 let args_obj = js_sys::Object::new();
                 let mem = wasm_shared_memory(in_buf.as_slice())?;
-                let dim = js_sys::Array::of2(&js_num(dimensions.x), &js_num(dimensions.y));
+                let dim = js_sys::Array::of2(&js_num(self.dim.x), &js_num(self.dim.y));
 
                 js_sys::Reflect::set(&args_obj, &"inBuffer".into(), &mem.into())?;
                 js_sys::Reflect::set(&args_obj, &"dimensions".into(), &dim)?;
 
                 let promise = get_next_frame.call(&JsValue::NULL, (&args_obj.into(),))?;
                 let result = JsFuture::from(promise).await?;
-                let info: JsVideoFrameData = serde_wasm_bindgen::from_value(result).map_js_err()?;
+                let info: JsVideoFrameData = serde_wasm_bindgen::from_value(result)?;
 
                 if info.is_finished {
                     return Ok(None);
                 }
 
-                let img_buf = image::RgbaImage::from_raw(dimensions.x, dimensions.y, in_buf);
+                let img_buf = image::RgbaImage::from_raw(self.dim.x, self.dim.y, in_buf);
                 let img_buf = img_buf.expect("Invalid RGBA frame dimensions");
-                let frame = image::Frame::new(img_buf);
 
-                Ok(Some(frame))
+                Some(FrameWithTimestamp(
+                    image::Frame::new(img_buf),
+                    (info.media_time.unwrap() * 1000.0 * 1000.0) as u64,
+                ))
             }
-        }
+        })
     }
 }
 

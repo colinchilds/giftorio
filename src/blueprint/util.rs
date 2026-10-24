@@ -1,4 +1,5 @@
 use crate::blueprint::{constants::*, models::*};
+use crate::util::ResultJsExt;
 use std::io;
 use wasm_bindgen::*;
 
@@ -179,51 +180,4 @@ pub unsafe fn rgba_to_rgb_simd(rgba: &[u8]) -> Vec<i32> {
     }
 
     output
-}
-
-pub trait ResultJsExt<T, E> {
-    fn map_js_err(self, prefix: &str) -> Result<T, JsValue>;
-}
-
-impl<T, E: std::fmt::Display> ResultJsExt<T, E> for Result<T, E> {
-    fn map_js_err(self, prefix: &str) -> Result<T, JsValue> {
-        self.map_err(|e| JsValue::from_str(&format!("{prefix}: {e}")))
-    }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(untagged)]
-pub enum OneOrMany<T> {
-    One(T),
-    Many(Vec<T>),
-}
-impl<T: Clone> OneOrMany<T> {
-    /// Returns a new clone of the contained value.
-    pub fn to_vec(&self) -> Vec<T> {
-        match self {
-            Self::One(v) => vec![v.clone()],
-            Self::Many(v) => v.clone(),
-        }
-    }
-}
-
-pub fn format_duration(ms: u32) -> String {
-    let total_seconds = ms / 1000;
-
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-    let milliseconds = ms % 1000;
-
-    format!("{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}")
-}
-
-/// Checks if the value is the default value for the type.
-pub fn is_default<T: Default + PartialEq>(value: &T) -> bool {
-    value == &T::default()
-}
-
-/// Checks if an Option is None or the default value for the type.
-pub fn is_none_or_default<T: Default + PartialEq>(value: &Option<T>) -> bool {
-    value.as_ref().is_none_or(|v| v == &T::default())
 }

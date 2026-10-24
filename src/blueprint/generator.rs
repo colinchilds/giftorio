@@ -4,6 +4,7 @@ use crate::blueprint::{
 };
 use crate::image_processing::FrameData;
 use crate::progress::set_progress;
+use crate::util::format_duration;
 use glam::{UVec2, dvec2, uvec2};
 use std::{io, sync::Arc};
 use wasm_bindgen::JsValue;
@@ -360,7 +361,7 @@ impl<'a> BlueprintGenerator<'a> {
         ]);
 
         if let Some(fd) = info.map(|x| &x.frame_data) {
-            let duration = format_duration(fd.curr_duration_ms());
+            let duration = format_duration(fd.curr_duration_us().div_ceil(1000));
             let color_format = match self.args.grayscale_bits {
                 0 => "Full Color (RGB8)",
                 1 => "Black & White",

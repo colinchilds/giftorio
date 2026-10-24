@@ -1,5 +1,6 @@
 use crate::blueprint::models::{ComparatorString as CompStr, *};
-use crate::blueprint::{constants::*, macros::*, power_pole::*, util::*};
+use crate::blueprint::{constants::*, macros::*, power_pole::*};
+use crate::util::{OneOrMany, ResultJsExt};
 use glam::{DVec2, IVec2, dvec2};
 use std::{cell::RefCell, collections::HashMap, io::Read, sync::Arc};
 use wasm_bindgen::*;

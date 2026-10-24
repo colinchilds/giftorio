@@ -124,3 +124,12 @@ pub enum OutputFormat {
     Json,
     RawCompressed,
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsVideoFrameData {
+    #[serde(default)]
+    pub is_finished: bool,
+    #[serde(default)]
+    pub media_time: Option<f64>,
+}

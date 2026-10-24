@@ -1,15 +1,15 @@
-use crate::JsValue;
 use crate::blueprint::generator::BlueprintGenerator;
-use crate::blueprint::util::ResultJsExt;
 use crate::constants::FACTORIO_VERSION_PREFIX;
 use crate::models::{BlueprintArgs, OutputFormat};
 use crate::progress::report_progress;
+use crate::util::ResultJsExt;
 use base64::{
     engine::{GeneralPurpose, general_purpose::STANDARD},
     write::EncoderWriter,
 };
 use flate2::{Compression, write::ZlibEncoder};
 use std::io::Write;
+use wasm_bindgen::*;
 
 pub struct BlueprintEncoder<'a, W: Write> {
     generator: BlueprintGenerator<'a>,

@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use crate::blueprint::{constants::*, dvec2_xy, util::*};
+use crate::blueprint::{constants::*, dvec2_xy};
 pub use crate::models::*;
+use crate::util::{is_default, is_none_or_default};
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

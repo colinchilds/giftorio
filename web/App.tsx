@@ -11,11 +11,10 @@ import SignalSelectors, { TimingSignals } from "@/components/signal/SignalSelect
 import { FORM_ELEMENTS, getInitialValues, LAST_FILE_KEY, setInitialValues, SHOW_ADVANCED_KEY, SignalPreset } from "@/data";
 import { loadFileDB, saveFileDB } from "@/db";
 import { FormElementValue } from "@/types";
-import { formatDuration, formatFileSize, kebabCaseToSentenceCase, nullify, useErrM, useLocalStorageJSON } from "@/utils";
+import { formatDuration, formatFileSize, kebabCaseToSentenceCase, useErrM, useLocalStorageJSON } from "@/utils";
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
-import { seekTo } from "./worker";
 
 const MAX_BUFFERED_VIDEO_FRAMES = 4;
 
@@ -57,58 +56,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
 
   let refCanvas!: HTMLCanvasElement; // Used for preview
 
-  const videoDecodeState = {
-    dimensions: nullify<[number, number]>(),
-    frameI: 0,
-    isDecoding: false,
-    isFinished: false,
-    nBufferedFrames: 0,
-  };
-
-  async function pumpVideoFrames() {
-    const state = videoDecodeState;
-    if (state.isDecoding || state.isFinished || !state.dimensions) return;
-
-    const [width, height] = state.dimensions;
-
-    state.isDecoding = true;
-
-    try {
-      while (state.nBufferedFrames < MAX_BUFFERED_VIDEO_FRAMES && !state.isFinished) {
-        // Reserve a slot before starting asynchronous work.
-        state.nBufferedFrames++;
-
-        const t0 = performance.now();
-        await seekTo(refVideo, state.frameI / formData.targetFps);
-        const t1 = performance.now();
-
-        const bitmap = await createImageBitmap(refVideo, {
-          resizeWidth: width,
-          resizeHeight: height,
-          resizeQuality: "medium",
-          colorSpaceConversion: "none",
-        });
-        const t2 = performance.now();
-        if (!bitmap) {
-          state.nBufferedFrames--;
-          state.isFinished = true;
-          worker.postMessage({ videoRenderFrame: { isFinished: true } });
-          break;
-        }
-
-        worker.postMessage({ videoRenderFrame: { bitmap, dimensions: [width, height], isFinished: false } }, [bitmap]);
-        state.frameI++;
-
-        console.table({
-          seekMs: t1 - t0,
-          bitmapMs: t2 - t1,
-        });
-      }
-    } finally {
-      state.isDecoding = false;
-    }
-  }
-
   function showOpenStreamingWindowWarning() {
     setShowStreamingWindowWarning(true);
     setTimeout(() => setShowStreamingWindowWarning(false), 10000);
@@ -127,6 +74,31 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     responseText: HTMLDivElement;
     submitButton: HTMLButtonElement;
   } = {} as any;
+
+  // Worker message handler
+  worker.onmessage = async ({ data }) => {
+    if (data.progress) {
+      const { percentage, status } = data.progress;
+      formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
+      formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
+    } else if (data.shouldShowPreview) {
+      const { showPreview } = data.shouldShowPreview;
+      setWorkerShouldShowPreview(showPreview);
+    } else if (data.blueprintMetadata) {
+      const { blueprintMetadata } = data;
+
+      showToast("Blueprint downloaded!");
+
+      formRefs.progressContainer.classList.add("hidden");
+      formRefs.blueprintResult.classList.remove("hidden");
+      formRefs.responseText.innerHTML = "Blueprint downloaded!";
+      formRefs.submitButton.disabled = false;
+    } else if (data.error) {
+      showToast(data.error, { isError: true });
+      setIsGenerating(false);
+      formRefs.submitButton.disabled = false;
+    }
+  };
 
   function showToast(...args: Parameters<FactorioToastsApi["showToast"]>) {
     refToasts.showToast(...args);
@@ -206,43 +178,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
       );
     }
   }
-
-  // Worker message handler
-  worker.onmessage = async ({ data }) => {
-    if (data.progress) {
-      const { percentage, status } = data.progress;
-      formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
-      formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
-    } else if (data.videoRenderRequest) {
-      const { status, dimensions } = data.videoRenderRequest;
-
-      if (status === "need-frame") {
-        videoDecodeState.dimensions = dimensions;
-        void pumpVideoFrames();
-      } else if (status === "frame-consumed") {
-        videoDecodeState.nBufferedFrames = Math.max(0, videoDecodeState.nBufferedFrames - 1);
-        void pumpVideoFrames();
-      } else {
-        throw new Error(`Invalid videoRenderRequest status: ${status}`);
-      }
-    } else if (data.shouldShowPreview) {
-      const { showPreview } = data.shouldShowPreview;
-      setWorkerShouldShowPreview(showPreview);
-    } else if (data.blueprintMetadata) {
-      const { blueprintMetadata } = data;
-
-      showToast("Blueprint downloaded!");
-
-      formRefs.progressContainer.classList.add("hidden");
-      formRefs.blueprintResult.classList.remove("hidden");
-      formRefs.responseText.innerHTML = "Blueprint downloaded!";
-      formRefs.submitButton.disabled = false;
-    } else if (data.error) {
-      showToast(data.error, { isError: true });
-      setIsGenerating(false);
-      formRefs.submitButton.disabled = false;
-    }
-  };
 
   async function setInputFile(file: File | null) {
     if (!file) {
@@ -355,8 +290,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
           },
         };
       }
-
-      console.log(animationInfo());
 
       worker.postMessage({
         generate: {
@@ -476,8 +409,15 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   createEffect(() => signalPresetRaw() && worker.postMessage({ signalPresetRaw: signalPresetRaw()! }));
   createEffect(() => worker.postMessage({ showPreview: { showPreview: showPreview() } }));
   createEffect(() => {
-    if (isGenerating() && currFile()!.size > 1024 * 1024 * 10) {
-      refDialogLargeFile.show();
+    if (isGenerating()) {
+      if (currFile()!.size > 1024 * 1024 * 10) {
+        refDialogLargeFile.show();
+      }
+      if (currFile()!.type.startsWith("video/")) {
+        setWorkerShouldShowPreview(true);
+      }
+    } else {
+      refDialogLargeFile.hide();
     }
   });
 
@@ -594,8 +534,18 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         </Show>
       </div>
 
-      <div class="fixed inset-0 w-full h-full">
-        <video ref={refVideo} autoplay muted loop playsinline class="w-full h-full object-contain opacity-30" />
+      <div class="fixed inset-0 w-full h-full opacity-30">
+        <video
+          ref={refVideo}
+          class="w-full h-full object-contain"
+          autoplay
+          muted
+          loop
+          playsinline
+          classList={{
+            "opacity-0": showPreview(),
+          }}
+        />
       </div>
 
       <div class="fixed top-0 left-0 right-0 font-semibold">
