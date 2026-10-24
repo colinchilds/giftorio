@@ -211,6 +211,7 @@ impl<'a> BlueprintGenerator<'a> {
             }
             let blacklist_sigs = [
                 Arc::clone(&args.timing_signals.f),
+                Arc::clone(&args.timing_signals.p),
                 Arc::clone(&args.timing_signals.s),
                 Arc::clone(&args.timing_signals.t),
             ]; // Disallow timing signals from being used
@@ -545,7 +546,7 @@ impl<'a> BlueprintGenerator<'a> {
         let use_delta_comp = info.use_delta_comp;
         let ticks_per_grp = ticks_per_frame * frames_per_cb;
         let mode = self.args.mode;
-        let sig_t = self.args.timing_signals.t.clone();
+        let sig_p = self.args.timing_signals.p.clone();
 
         let mk_cb = |start: u32, end: u32, outputs: Vec<DeciderCombinatorOutput>| {
             if matches!(mode, Mode::Static { const_cb: true, .. }) {
@@ -569,8 +570,8 @@ impl<'a> BlueprintGenerator<'a> {
             } else {
                 ControlBehavior::decider(DeciderCombinatorParameters {
                     conditions: vec![
-                        DeciderCombinatorCondition::new(sig_t.clone(), start as i32, CompStr::Ge),
-                        DeciderCombinatorCondition::new(sig_t.clone(), end as i32, CompStr::Lt)
+                        DeciderCombinatorCondition::new(sig_p.clone(), start as i32, CompStr::Ge),
+                        DeciderCombinatorCondition::new(sig_p.clone(), end as i32, CompStr::Lt)
                             .with_compare_type(CompareTypeString::And),
                     ],
                     outputs,

@@ -174,13 +174,13 @@ impl<'a> FrameData<'a> {
                 let progress: f64;
 
                 if use_js_decode {
+                    curr_time = self.curr_n_us as f64 / 1000.0 / 1000.0;
                     duration = self.args.image_metadata.duration.unwrap();
                     progress = (self.out_frame_i as f64 / self.args.target_fps as f64) / duration;
-                    curr_time = self.curr_n_us as f64 / 1000.0 / 1000.0;
                 } else {
-                    duration = (self.out_n_frames * 1000) as f64 / self.args.target_fps as f64;
+                    curr_time = self.out_frame_i as f64 * self.args.target_fps as f64;
+                    duration = self.out_n_frames as f64 / self.args.target_fps as f64;
                     progress = self.out_frame_i as f64 / self.out_n_frames as f64;
-                    curr_time = progress * duration;
                 }
 
                 set_progress(

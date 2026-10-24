@@ -32,6 +32,7 @@ pub struct BlueprintArgs {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimingSignals {
     pub f: Arc<crate::blueprint::models::SignalID>,
+    pub p: Arc<crate::blueprint::models::SignalID>,
     pub s: Arc<crate::blueprint::models::SignalID>,
     pub t: Arc<crate::blueprint::models::SignalID>,
 }

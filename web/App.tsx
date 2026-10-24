@@ -772,7 +772,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                 <SignalSelectors
                   values={{
                     f: { type: "virtual", name: "signal-F", quality: "normal" },
-                    s: { type: "virtual", name: "signal-B", quality: "normal" },
+                    p: { type: "virtual", name: "signal-P", quality: "normal" },
+                    s: { type: "virtual", name: "signal-S", quality: "normal" },
                     t: { type: "virtual", name: "signal-T", quality: "normal" },
                   }}
                   signalData={signalPreset()!}

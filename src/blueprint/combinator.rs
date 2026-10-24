@@ -192,7 +192,7 @@ pub fn generate_combinators(
             conditions: vec![
                 DeciderCombinatorCondition::new(SIG_EACH.clone(), 0, CompStr::Ne)
                     .with_first_signal_networks(CircuitNetworkSelection::green()),
-                DeciderCombinatorCondition::new(args.timing_signals.t.clone(), 0, CompStr::Ne)
+                DeciderCombinatorCondition::new(args.timing_signals.p.clone(), 0, CompStr::Ne)
                     .with_compare_type(CompareTypeString::And)
                     .with_first_signal_networks(CircuitNetworkSelection::red()),
             ],
