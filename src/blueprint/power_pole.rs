@@ -22,7 +22,8 @@ impl PowerPoleOccupied {
             let data = &data.as_ref().expect("No power pole data loaded yet!");
             let poles = &data.electric_poles;
             let p = poles.iter().find(|p| *p.name == name);
-            p.expect(&format!("No power pole '{name}'!")).clone()
+            p.unwrap_or_else(|| panic!("No power pole with name '{name}'!"))
+                .clone()
         });
         let bounding_box = DVec2::new(data.tile_width as f64, data.tile_height as f64);
         let dists = &data.supply_area_distances;
@@ -119,7 +120,7 @@ impl PowerPoleOccupied {
             }
         }
 
-        return (poles, wires, curr_ent_n);
+        (poles, wires, curr_ent_n)
     }
 
     /// Tests if it is possible to place an entity at the given point, without overlapping with a power pole.

@@ -1,22 +1,22 @@
-use crate::JsValue;
-use crate::blueprint::blueprint::BlueprintGenerator;
-use crate::blueprint::util::ResultJsExt;
+use crate::blueprint::generator::BlueprintGenerator;
 use crate::constants::FACTORIO_VERSION_PREFIX;
 use crate::models::{BlueprintArgs, OutputFormat};
 use crate::progress::report_progress;
+use crate::util::ResultJsExt;
 use base64::{
     engine::{GeneralPurpose, general_purpose::STANDARD},
     write::EncoderWriter,
 };
 use flate2::{Compression, write::ZlibEncoder};
 use std::io::Write;
+use wasm_bindgen::*;
 
 pub struct BlueprintEncoder<'a, W: Write> {
     generator: BlueprintGenerator<'a>,
     writer: Option<OutputWriter<'a, W>>,
 }
 enum OutputWriter<'a, W: Write> {
-    Blueprint(ZlibEncoder<EncoderWriter<'a, GeneralPurpose, W>>),
+    Blueprint(Box<ZlibEncoder<EncoderWriter<'a, GeneralPurpose, W>>>),
     Json(W),
     RawCompressed(ZlibEncoder<W>),
 }
@@ -67,10 +67,10 @@ impl<'a, W: Write> BlueprintEncoder<'a, W> {
             OutputFormat::RawCompressed => {
                 OutputWriter::RawCompressed(ZlibEncoder::new(stream_writer, Compression::best()))
             }
-            OutputFormat::Blueprint => OutputWriter::Blueprint(ZlibEncoder::new(
+            OutputFormat::Blueprint => OutputWriter::Blueprint(Box::new(ZlibEncoder::new(
                 EncoderWriter::new(stream_writer, &STANDARD),
                 Compression::best(),
-            )),
+            ))),
             _ => OutputWriter::Json(stream_writer),
         });
 

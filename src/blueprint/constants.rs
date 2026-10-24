@@ -1,8 +1,7 @@
-#![allow(dead_code)]
-
+use crate::blueprint::models::SignalID;
+use crate::macros::lazy_arc_const;
 use glam::{DVec2, dvec2};
-
-use crate::macros::lazy_const;
+use std::sync::Arc;
 
 /// Timer entity positions.
 pub const TIMER1_POS: DVec2 = dvec2(-2.5, -0.5);
@@ -24,21 +23,17 @@ pub const BLUEPRINT_VERSION: u64 = 562949955518464;
 /// Threshold used for binary grayscale conversion. (out of 256)
 pub const GRAYSCALE_THRESH: u8 = 128;
 
-lazy_const!(pub DEC_CB          : str     = "decider-combinator"   );
-lazy_const!(pub ARI_CB          : str     = "arithmetic-combinator");
-lazy_const!(pub CONSTANT_COMB   : str     = "constant-combinator"  );
-lazy_const!(pub LAMP            : str     = "small-lamp"           );
-lazy_const!(pub BLUEPRINT       : str     = "blueprint"            );
+lazy_arc_const!(pub ARI_CB             : str      = "arithmetic-combinator"                        );
+lazy_arc_const!(pub BLUEPRINT          : str      = "blueprint"                                    );
+lazy_arc_const!(pub CONSTANT_COMB      : str      = "constant-combinator"                          );
+lazy_arc_const!(pub DEC_CB             : str      = "decider-combinator"                           );
+lazy_arc_const!(pub DEFAULT_QUAL_KEY   : str      = "<default>"                                    );
+lazy_arc_const!(pub DEFAULT_SIGNAL_TYPE: str      = "item"                                         );
+lazy_arc_const!(pub LAMP               : str      = "small-lamp"                                   );
+lazy_arc_const!(pub SIG_EACH           : SignalID = SignalID::new_virtual(Arc::from("signal-each")));
+lazy_arc_const!(pub SIG_TYPE_VIRTUAL   : str      = "virtual"                                      );
 
-lazy_const!(pub DEFAULT_QUAL_KEY: str     = "<default>"            );
-lazy_const!(pub SIG_TYPE_VIRTUAL: str     = "virtual"              );
-
-pub const DEFAULT_POWER_POLE_NAME: &'static str = "substation";
-
-pub const SIG_EACH: std::sync::LazyLock<crate::blueprint::models::SignalID> =
-    std::sync::LazyLock::new(|| {
-        crate::blueprint::models::SignalID::new_virtual(std::sync::Arc::from("signal-each"))
-    });
+pub const DEFAULT_POWER_POLE_NAME: &str = "substation";
 
 pub const WIRE_R: u32 = 1;
 pub const WIRE_G: u32 = 2;

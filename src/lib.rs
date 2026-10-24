@@ -1,4 +1,3 @@
-use image::GenericImageView;
 use wasm_bindgen::prelude::*;
 
 mod blueprint;
@@ -9,10 +8,7 @@ mod macros;
 mod models;
 mod progress;
 mod streaming_writer;
-
-fn now_ms() -> f64 {
-    js_sys::Date::now()
-}
+mod util;
 
 fn get_cb<T: js_sys::JsFunction>(
     callbacks: &JsValue,
@@ -21,10 +17,6 @@ fn get_cb<T: js_sys::JsFunction>(
     js_sys::Reflect::get(callbacks, &name.into())?
         .dyn_into::<js_sys::Function<T>>()
         .map_err(|_| JsValue::from_str(&format!("{name} must be a function")))
-}
-
-fn js_num<N: Into<f64>>(num: N) -> js_sys::Number {
-    js_sys::Number::from(num.into())
 }
 
 #[wasm_bindgen]
@@ -52,32 +44,36 @@ pub async fn run_blueprint(
     //     fn(js_sys::Uint8Array, js_sys::Number, js_sys::Number) -> js_sys::Undefined,
     // >,
 ) -> Result<JsValue, JsValue> {
-    use blueprint::{blueprint::BlueprintGenerator, encoder::BlueprintEncoder};
-    use image_processing::{FrameCallback, FrameData};
+    use blueprint::{encoder::BlueprintEncoder, generator::BlueprintGenerator};
+    use image_processing::{FrameCallback, FrameData, JsVideoFrameCallback};
     use js_sys as js;
     use models::*;
-    use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        collections::VecDeque,
+        rc::Rc,
+    };
     use streaming_writer::StreamingWriter;
+    use util::*;
     use wasm_bindgen_futures::JsFuture;
 
     const SYNC_TIME_MS: f64 = 1000.0;
 
+    let get_next_frame = get_cb::<JsVideoFrameCallback>(&callbacks, "getFrameData")?;
     let on_chunk = get_cb::<fn(js::Uint8Array) -> js::Promise>(&callbacks, "onChunk")?;
-    let on_frame = get_cb::<
-        fn(JsValue, js::Number, js::Number, js::Number, js::Number) -> js::Undefined,
-    >(&callbacks, "onFrame")?;
-    let should_show_preview = get_cb::<fn() -> js::Boolean>(&callbacks, &"shouldShowPreview")?;
-    let yield_to_js = get_cb::<fn() -> js::Promise>(&callbacks, &"yieldToJs")?;
+    let on_frame = get_cb::<fn(JsValue) -> js::Undefined>(&callbacks, "onFrame")?;
+    let should_show_preview = get_cb::<fn() -> js::Boolean>(&callbacks, "shouldShowPreview")?;
+    let yield_to_js = get_cb::<fn() -> js::Promise>(&callbacks, "yieldToJs")?;
+
+    let on_frame = Rc::new(on_frame);
+    let should_show_preview = Rc::new(should_show_preview);
+    let yield_to_js = Rc::new(yield_to_js);
 
     let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
     let mut frame_data: Option<FrameData> = None;
     let promises = Rc::new(const { RefCell::new(VecDeque::<Vec<js::Promise>>::new()) });
     let promise_q = Rc::clone(&promises);
-
-    let on_frame = Rc::new(on_frame);
-    let should_preview = Rc::new(should_show_preview);
-    let yield_to_js = Rc::new(yield_to_js);
-    let next_yield_time = Rc::new(std::cell::Cell::new(now_ms() + SYNC_TIME_MS));
+    let next_yield_time = Rc::new(Cell::new(now_ms() + SYNC_TIME_MS));
 
     if matches!(args.mode, Mode::Static { .. }) {
         args.signal_compression = None;
@@ -86,61 +82,77 @@ pub async fn run_blueprint(
     if matches!(args.mode, Mode::Full | Mode::Static { .. }) {
         let on_frame: FrameCallback = Box::new(move |result| {
             let on_frame = on_frame.clone();
-            let should_show_preview = Rc::clone(&should_preview);
+            let should_show_preview = Rc::clone(&should_show_preview);
             let yield_to_js = Rc::clone(&yield_to_js);
             let next_yield_time = Rc::clone(&next_yield_time);
 
             Box::pin(async move {
-                let show_preview = should_show_preview.call0(&JsValue::NULL).unwrap_throw();
+                let show_preview = should_show_preview.call0(&JsValue::NULL)?;
                 let show_preview = show_preview.as_bool() == Some(true);
                 let now = now_ms();
 
                 // yield to js so preview can be updated
                 if show_preview || (now > next_yield_time.get()) {
                     next_yield_time.set(now + SYNC_TIME_MS);
-                    JsFuture::from(yield_to_js.call0(&JsValue::NULL).unwrap_throw())
-                        .await
-                        .unwrap_throw();
+                    JsFuture::from(yield_to_js.call0(&JsValue::NULL)?).await?;
                 }
                 if !show_preview {
-                    return;
+                    return Ok(());
                 }
 
-                let img = result.unwrap_throw();
+                let img = result?;
                 let rgba = match img.as_rgba8() {
                     Some(rgba) => rgba,
                     _ => &img.to_rgba8(),
                 };
-                let (ptr, len) = (rgba.as_ptr() as u32, rgba.len() as u32);
 
-                let (w, h) = img.dimensions();
-                let mem = wasm_bindgen::memory();
-                let args = (&mem, &js_num(ptr), &js_num(len), &js_num(w), &js_num(h));
+                let args_obj = js::Object::new();
+                let mem = wasm_shared_memory(rgba)?;
+                let dim = js::Array::of2(&js_num(img.width()), &js_num(img.height()));
 
-                on_frame.call(&JsValue::NULL, args).unwrap_throw();
+                js::Reflect::set(&args_obj, &"outBuffer".into(), &mem.into())?;
+                js::Reflect::set(&args_obj, &"dimensions".into(), &dim)?;
+
+                on_frame.call(&JsValue::NULL, (&args_obj.into(),))?;
+
+                Ok(())
             })
         });
 
+        let js_next_frame = (args.image_metadata.mime_type)
+            .starts_with("video/")
+            .then(|| get_next_frame.clone());
+
         // Create iterator over frames.
-        frame_data = Some(FrameData::new(image_data, &args, Some(on_frame)).unwrap_throw());
+        frame_data = Some(FrameData::new(
+            image_data,
+            &args,
+            Some(on_frame),
+            js_next_frame,
+        )?);
     }
 
     // Custom writer that invokes a callback whenever chunk size is reached.
-    let writer = StreamingWriter::new(1 * 1024 * 1024, |chunk| {
+    let writer = StreamingWriter::new(2 * 1024 * 1024, |chunk| {
         let data = js::Uint8Array::from(chunk.as_slice());
-        let promise = on_chunk.call(&JsValue::NULL, (&data,)).unwrap_throw();
-        promise_q.borrow_mut().back_mut().map(|q| q.push(promise));
+        let promise = on_chunk.call(&JsValue::NULL, (&data,))?;
+        if let Some(q) = promise_q.borrow_mut().back_mut() {
+            q.push(promise)
+        }
+
+        Ok(())
     });
 
     // Yields JSON or compressed blueprint in chunks
-    let generator = BlueprintGenerator::new(frame_data, &args)
-        .await
-        .unwrap_throw();
-    let mut encoder = BlueprintEncoder::new(generator, &args, writer).unwrap_throw();
+    let generator = BlueprintGenerator::new(frame_data, &args).await?;
+    let mut encoder = BlueprintEncoder::new(generator, &args, writer)?;
 
     let flush = async || -> Result<(), JsValue> {
         // Get the earliest list of promises from the queue
-        if let Some(mut q) = std::mem::take(&mut *promises.borrow_mut()).pop_front() {
+        if let Some(mut q) = {
+            let mut promises = promises.borrow_mut();
+            std::mem::take(&mut *promises).pop_front()
+        } {
             for promise in q.drain(..) {
                 JsFuture::from(promise).await?;
             }
@@ -151,13 +163,13 @@ pub async fn run_blueprint(
     promises.borrow_mut().push_back(vec![]);
 
     // `encoder.next()` may generate a series of chunks
-    while let Some(_) = encoder.next().await.unwrap_throw() {
+    while encoder.next().await?.is_some() {
         flush().await?; // Wait for all those chunks to be sent
         promises.borrow_mut().push_back(vec![]); // Repopulate
     }
 
-    let mut stream_writer = encoder.finish().unwrap_throw();
-    stream_writer.finish();
+    let mut stream_writer = encoder.finish()?;
+    stream_writer.finish().map_js_err("Stream finish err")?;
 
     flush().await?; // Flush tail
 

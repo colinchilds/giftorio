@@ -18,7 +18,7 @@ export interface FactorioDialogDeleteProps {
 }
 
 export default function FactorioDialogDelete(props: FactorioDialogDeleteProps) {
-  let refDialog: HTMLDialogElement = null!;
+  let refDialog!: HTMLDialogElement;
 
   function show() {
     refDialog.showModal();

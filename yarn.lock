@@ -313,6 +313,18 @@
   dependencies:
     "@babel/types" "^7.20.7"
 
+"@types/dom-mediacapture-transform@^0.1.11":
+  version "0.1.12"
+  resolved "https://registry.npmjs.org/@types/dom-mediacapture-transform/-/dom-mediacapture-transform-0.1.12.tgz"
+  integrity sha512-d7/QsLRwF864A5mgIM/YrfiglHoYn7zgCcAoJgW404r+2DwnNr7EBbLnCWpmOMgH8y0te73L1AV6H1bmauaWFw==
+  dependencies:
+    "@types/dom-webcodecs" "*"
+
+"@types/dom-webcodecs@*", "@types/dom-webcodecs@0.1.13":
+  version "0.1.13"
+  resolved "https://registry.npmjs.org/@types/dom-webcodecs/-/dom-webcodecs-0.1.13.tgz"
+  integrity sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==
+
 "@types/estree@1.0.6":
   version "1.0.6"
   resolved "https://registry.npmjs.org/@types/estree/-/estree-1.0.6.tgz"
@@ -675,6 +687,14 @@ lru-cache@^5.1.1:
   integrity sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==
   dependencies:
     yallist "^3.0.2"
+
+mediabunny@^1.62.1:
+  version "1.62.1"
+  resolved "https://registry.npmjs.org/mediabunny/-/mediabunny-1.62.1.tgz"
+  integrity sha512-lYzeerDwo9QLhBCipqQDXOSV7InvaIFplllZQviPO5rPwH+IUr8M1uvumk1olIUgMRGkPiInRriv25WFErUgMw==
+  dependencies:
+    "@types/dom-mediacapture-transform" "^0.1.11"
+    "@types/dom-webcodecs" "0.1.13"
 
 merge-anything@^5.1.7:
   version "5.1.7"

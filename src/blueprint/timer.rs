@@ -22,8 +22,10 @@ pub fn generate_timer(
     frames_per_comb: u32,
     args: &BlueprintArgs,
 ) -> (Vec<BlueprintEntity>, Vec<Wire>) {
-    let ts = &args.timing_sigs;
-    let (sig_f, sig_s, sig_t) = (&ts.f, &ts.s, &ts.t);
+    let (sig_f, sig_p, sig_s, sig_t) = {
+        let s = &args.timing_signals;
+        (&s.f, &s.p, &s.s, &s.t)
+    };
 
     let gray_bits = args.grayscale_bits;
     let mut ents: Vec<BlueprintEntity> = Vec::new();
@@ -35,32 +37,28 @@ pub fn generate_timer(
             index: 1,
             filters: vec![BlueprintLogisticFilter {
                 index: 1,
-                type_: sig_t.type_.clone(),
-                name: sig_t.name.clone(),
+                type_: Arc::clone(&sig_t.type_),
+                name: Arc::clone(&sig_t.name),
                 quality: sig_t.quality.clone(),
                 comparator: Some(CompStr::Eq),
                 count: 1,
             }],
         }],
     };
-    en = en.with_control_behavior(
-        ControlBehavior::ConstantCombinatorBlueprintControlBehavior { sections },
-    );
+    en = en.with_control_behavior(ControlBehavior::ConstantCombinator { sections });
     ents.push(en.with_tag("incrementer"));
 
     let mut en = BlueprintEntity::new(2, Arc::clone(&DEC_CB), TIMER2_POS).with_direction(DIR_R);
-    let condition = DeciderCombinatorCondition::new(sig_t.clone(), stop as i32, CompStr::Lt);
+    let condition = DeciderCombinatorCondition::new(Arc::clone(sig_t), stop as i32, CompStr::Lt);
     let decider_conditions = DeciderCombinatorParameters {
         conditions: vec![condition],
-        outputs: vec![DeciderCombinatorOutput::new(Arc::from(sig_t.clone()), None)],
+        outputs: vec![DeciderCombinatorOutput::new(Arc::clone(sig_t), None)],
     };
-    en = en.with_tag("base_timer").with_description("[virtual-signal=signal-T] increments 60 times per second up to the GIF's frame count, then resets to 0. It determines the current frame.");
-    ents.push(en.with_control_behavior(
-        ControlBehavior::DeciderCombinatorBlueprintControlBehavior { decider_conditions },
-    ));
+    en = en.with_tag("base_timer").with_description("Increments 60 times per second up to the GIF's frame count, then resets to 0. It determines the current frame.");
+    ents.push(en.with_control_behavior(ControlBehavior::DeciderCombinator { decider_conditions }));
 
     let en = BlueprintEntity::new(3, Arc::clone(&ARI_CB), TIMER3_POS).with_direction(DIR_R);
-    let conds = arithmetic_conds!(sig_t - 1 => sig_t);
+    let conds = arithmetic_conds!(sig_t - 1 => sig_p);
     ents.push(en.with_control_behavior(ControlBehavior::arithmetic(conds)));
 
     wires.push([1, WIRE_R, 2, WIRE_R]);
@@ -69,7 +67,7 @@ pub fn generate_timer(
 
     if gray_bits > 0 {
         let en = BlueprintEntity::new(4, Arc::clone(&ARI_CB), TIMER4_POS).with_direction(DIR_L);
-        let conds = arithmetic_conds!(sig_t % (ticks_per_frame * frames_per_comb) => sig_s);
+        let conds = arithmetic_conds!(sig_p % (ticks_per_frame * frames_per_comb) => sig_s);
         ents.push(en.with_control_behavior(ControlBehavior::arithmetic(conds)));
 
         let en = BlueprintEntity::new(5, Arc::clone(&ARI_CB), TIMER5_POS).with_direction(DIR_U);
@@ -87,5 +85,5 @@ pub fn generate_timer(
         wires.push([6, WIRE_OUT_R, 3, WIRE_OUT_R]);
     }
 
-    return (ents, wires);
+    (ents, wires)
 }

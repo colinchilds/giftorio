@@ -1,9 +1,9 @@
-pub mod blueprint;
 pub mod combinator;
 mod constants;
 pub mod data;
 mod dvec2_xy;
 pub mod encoder;
+pub mod generator;
 mod lamp;
 mod macros;
 pub mod models;

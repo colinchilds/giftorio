@@ -3,7 +3,7 @@ import { SignalData } from "@/data";
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { SignalSelector } from "./SignalSelector";
 
-export const SIGNAL_SELECTOR_KEYS = Object.freeze(["f", "s", "t"] as const);
+export const SIGNAL_SELECTOR_KEYS = Object.freeze(["f", "p", "s", "t"] as const);
 export type TimingSignal = SignalData["signals"][number] & { quality: string };
 export type TimingSignals = Record<(typeof SIGNAL_SELECTOR_KEYS)[number], TimingSignal>;
 

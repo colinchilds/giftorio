@@ -1,3 +1,4 @@
+import { ALL_FORMATS, BlobSource, Input, VideoSampleSink } from "mediabunny";
 import init, {
   init as prepare_wasm,
   run_blueprint,
@@ -5,7 +6,8 @@ import init, {
   set_progress_callback,
   set_signal_data,
 } from "../pkg/giftorio_wasm.js";
-import { BASE_URL } from "./utils.js";
+import { type WasmSharedMemory } from "./types";
+import { BASE_URL, nullify } from "./utils";
 
 const FILE_PREFIX_MAP = { blueprint: "txt", json: "json", rawCompressed: "zlib" } as const;
 
@@ -25,8 +27,8 @@ async function main() {
   let writerReady: Promise<void> = Promise.resolve();
 
   const state = {
-    canvas: null as OffscreenCanvas | null,
-    ctx: null as OffscreenCanvasRenderingContext2D | null,
+    canvas: nullify<OffscreenCanvas>(),
+    ctx: nullify<OffscreenCanvasRenderingContext2D>(),
 
     shouldShowPreview: false,
   };
@@ -35,34 +37,63 @@ async function main() {
   const pendingWrites = new Map();
   let nextWriteId = 0;
 
-  const channel = new MessageChannel();
-  const queue: (() => void)[] = [];
+  // Used to allow rust to yield to JS at regular intervals
+  const syncChannel = new MessageChannel();
+  const syncQ: (() => void)[] = [];
 
-  channel.port1.onmessage = (): void => {
-    queue.shift()?.();
-  };
+  syncChannel.port1.onmessage = () => syncQ.shift()?.();
+
+  let videoStreamFinished = false;
 
   // Immediately add event listeners
-  addEventListener("message", async (event) => {
+  addEventListener("message", async (evt) => {
     await wasmReadyPromises.init;
 
-    if (event.data.type === "chunkWritten") {
-      const pending = pendingWrites.get(event.data.id);
+    if (evt.data.type === "chunkWritten") {
+      const pending = pendingWrites.get(evt.data.id);
       if (!pending) return;
 
-      pendingWrites.delete(event.data.id);
-      event.data.error ? pending.reject(new Error(event.data.error)) : pending.resolve();
-    } else if (event.data.canvas) {
-      const { canvas } = event.data.canvas;
+      pendingWrites.delete(evt.data.id);
+      evt.data.error ? pending.reject(new Error(evt.data.error)) : pending.resolve();
+    } else if (evt.data.canvas) {
+      const { canvas } = evt.data.canvas;
       state.canvas = canvas;
-      state.ctx = canvas.getContext("2d")!;
-      state.ctx!.imageSmoothingEnabled = false;
-    } else if (event.data.showPreview) {
-      const { showPreview } = event.data.showPreview;
+      state.ctx = state.canvas!.getContext("2d", {
+        colorSpace: "srgb",
+        willReadFrequently: true,
+      })!;
+      // state.ctx!.imageSmoothingEnabled = false;
+    } else if (evt.data.showPreview) {
+      const { showPreview } = evt.data.showPreview;
       state.shouldShowPreview = showPreview;
-    } else if (event.data.generate) {
-      const { imageData, args } = event.data.generate;
-      const { outputFormat } = args;
+    } else if (evt.data.generate) {
+      const { imageData, args: blueprintArgs } = evt.data.generate;
+      const { outputFormat } = blueprintArgs;
+
+      let videoInput: Input | null = null;
+      let videoSink: VideoSampleSink | null = null;
+      let videoSamples: ReturnType<VideoSampleSink["samples"]> | null = null;
+
+      if (blueprintArgs.imageMetadata.mimeType.startsWith("video/")) {
+        videoInput = new Input({
+          source: new BlobSource(new Blob([imageData])),
+          formats: ALL_FORMATS,
+        });
+
+        const videoTrack = await videoInput.getPrimaryVideoTrack();
+        if (!videoTrack) {
+          throw new Error("No video track found");
+        }
+
+        if (!(await videoTrack.canDecode())) {
+          throw new Error("This browser cannot decode this video");
+        }
+
+        videoSink = new VideoSampleSink(videoTrack);
+        videoSamples = videoSink.samples();
+      }
+
+      console.log(videoInput);
 
       // Safe to do this now as we've already waited for init()
       if (wasmReadyPromises.setCombPosData === null) {
@@ -98,9 +129,10 @@ async function main() {
               }
             });
           },
-          onFrame(memory: WebAssembly.Memory, ptr: number, len: number, width: number, height: number) {
+          onFrame({ outBuffer, dimensions }: { outBuffer: WasmSharedMemory; dimensions: [number, number] }) {
             try {
               const { canvas, ctx } = state;
+              const [width, height] = dimensions;
 
               if (!canvas || !ctx) return;
               if (canvas.width !== width || canvas.height !== height) {
@@ -108,10 +140,50 @@ async function main() {
                 canvas.height = height;
               }
 
-              const data = new Uint8ClampedArray(memory.buffer, ptr, len);
+              const data = new Uint8ClampedArray(outBuffer.memory.buffer, outBuffer.ptr, outBuffer.len);
               ctx.putImageData(new ImageData(data, width, height), 0, 0);
             } catch (e) {
               console.error(e);
+            }
+          },
+          async getFrameData({ inBuffer, dimensions }: { inBuffer: WasmSharedMemory; dimensions: [number, number] }) {
+            const { value: sample, done } = await videoSamples!.next();
+
+            if (done) {
+              return { isFinished: true };
+            }
+
+            try {
+              const [width, height] = dimensions;
+
+              const { canvas, ctx } = state;
+              if (!canvas || !ctx) {
+                throw new Error("Canvas is not initialized");
+              }
+
+              if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+              }
+
+              // Mediabunny handles the sample's rotation and flip metadata.
+              sample.draw(ctx, 0, 0, width, height);
+
+              const pixels = ctx.getImageData(0, 0, width, height).data;
+              const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
+
+              if (pixels.byteLength > dest.byteLength) {
+                throw new Error("Video frame exceeds WASM buffer capacity");
+              }
+
+              dest.set(pixels);
+
+              return {
+                isFinished: false,
+                mediaTime: sample.timestamp,
+              };
+            } finally {
+              sample.close();
             }
           },
           shouldShowPreview() {
@@ -124,24 +196,26 @@ async function main() {
           },
           yieldToJs() {
             return new Promise<void>((resolve: () => void) => {
-              queue.push(resolve);
-              channel.port2.postMessage(null);
+              syncQ.push(resolve);
+              syncChannel.port2.postMessage(null);
             });
           },
         };
 
-        const blueprintMetadata = await run_blueprint(args, imageData, callbacks);
+        const blueprintMetadata = await run_blueprint(blueprintArgs, imageData, callbacks);
         postMessage({ blueprintMetadata });
         postMessage({ type: "done" });
       } catch (e) {
         postMessage({ error: e?.toString() ?? String(e) });
       }
-    } else if (event.data.signalPresetRaw) {
-      const preset: Uint8Array = event.data.signalPresetRaw;
+    } else if (evt.data.signalPresetRaw) {
+      const preset: Uint8Array = evt.data.signalPresetRaw;
       wasmReadyPromises.setSignalData = set_signal_data(preset);
-    } else if (event.data.type === "writerReady") {
+    } else if (evt.data.type === "writerReady") {
       writerReadyResolve?.();
       writerReadyResolve = null;
+    } else {
+      throw new Error("Worker: Unhandled message", evt.data);
     }
   });
 }

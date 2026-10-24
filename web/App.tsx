@@ -16,7 +16,10 @@ import { createEffect, createMemo, createSignal, For, onMount, Show } from "soli
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 
+const MAX_BUFFERED_VIDEO_FRAMES = 4;
+
 export interface AppApi {
+  setDownloadUrl(url: string): void;
   showOpenStreamingWindowWarning(): void;
 }
 export interface AppProps {
@@ -42,19 +45,22 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
   const [signalPresetRaw, setSignalPresetRaw] = createSignal<Uint8Array | null>(null);
   const [timingSignals, setTimingSignals] = createSignal<TimingSignals | null>(null);
   const [showStreamingWindowWarning, setShowStreamingWindowWarning] = createSignal(false);
+  const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
 
-  let refBackground: BackgroundApi = null!;
-  let refCanvas: HTMLCanvasElement = null!; // Used for preview
-  let refDialogLargeFile: FactorioDialogDeleteApi = null!;
-  let refDialogReset: FactorioDialogDeleteApi = null!;
-  let refFormContainer: HTMLDivElement = null!;
-  let refToasts: FactorioToastsApi = null!;
+  let refBackground!: BackgroundApi;
+  let refDialogLargeFile!: FactorioDialogDeleteApi;
+  let refDialogReset!: FactorioDialogDeleteApi;
+  let refFormContainer!: HTMLDivElement;
+  let refToasts!: FactorioToastsApi;
+  let refVideo!: HTMLVideoElement;
+
+  let refCanvas!: HTMLCanvasElement; // Used for preview
 
   function showOpenStreamingWindowWarning() {
     setShowStreamingWindowWarning(true);
     setTimeout(() => setShowStreamingWindowWarning(false), 10000);
   }
-  ref({ showOpenStreamingWindowWarning } satisfies AppApi);
+  ref({ showOpenStreamingWindowWarning, setDownloadUrl } satisfies AppApi);
 
   // Refs
   const formRefs: {
@@ -68,6 +74,31 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     responseText: HTMLDivElement;
     submitButton: HTMLButtonElement;
   } = {} as any;
+
+  // Worker message handler
+  worker.onmessage = async ({ data }) => {
+    if (data.progress) {
+      const { percentage, status } = data.progress;
+      formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
+      formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
+    } else if (data.shouldShowPreview) {
+      const { showPreview } = data.shouldShowPreview;
+      setWorkerShouldShowPreview(showPreview);
+    } else if (data.blueprintMetadata) {
+      const { blueprintMetadata } = data;
+
+      showToast("Blueprint downloaded!");
+
+      formRefs.progressContainer.classList.add("hidden");
+      formRefs.blueprintResult.classList.remove("hidden");
+      formRefs.responseText.innerHTML = "Blueprint downloaded!";
+      formRefs.submitButton.disabled = false;
+    } else if (data.error) {
+      showToast(data.error, { isError: true });
+      setIsGenerating(false);
+      formRefs.submitButton.disabled = false;
+    }
+  };
 
   function showToast(...args: Parameters<FactorioToastsApi["showToast"]>) {
     refToasts.showToast(...args);
@@ -148,31 +179,6 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     }
   }
 
-  // Worker message handler
-  worker.onmessage = async ({ data }) => {
-    if (data.progress) {
-      const { percentage, status } = data.progress;
-      formRefs.progressBar.style.setProperty("--progress", `${percentage}%`);
-      formRefs.progressStatus.textContent = `(${percentage.toFixed(0)}%)  ${status}`;
-    } else if (data.shouldShowPreview) {
-      const { showPreview } = data.shouldShowPreview;
-      setWorkerShouldShowPreview(showPreview);
-    } else if (data.blueprintMetadata) {
-      const { blueprintMetadata } = data;
-
-      showToast("Blueprint downloaded!");
-
-      formRefs.progressContainer.classList.add("hidden");
-      formRefs.blueprintResult.classList.remove("hidden");
-      formRefs.responseText.innerHTML = "Blueprint downloaded!";
-      formRefs.submitButton.disabled = false;
-    } else if (data.error) {
-      showToast(data.error, { isError: true });
-      setIsGenerating(false);
-      formRefs.submitButton.disabled = false;
-    }
-  };
-
   async function setInputFile(file: File | null) {
     if (!file) {
       setCurrFile(null);
@@ -184,19 +190,37 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     let isStaticImage: boolean | null = null;
     let data: ImageData | undefined = undefined;
 
-    try {
-      const info = getAnimationInfo(new Uint8Array(await file.arrayBuffer()));
-      setAnimationInfo(info);
+    if (file.type.startsWith("image/")) {
+      try {
+        const info = getAnimationInfo(new Uint8Array(await file.arrayBuffer()));
+        setAnimationInfo(info);
+        isStaticImage = false;
+      } catch (e: any) {
+        if (!(e instanceof UnsupportedAnimationError)) throw e;
+
+        data = await getRawImageData(file);
+        isStaticImage = true;
+
+        // Parse the image directly in JS for more compatibility (we decode using the browser and
+        // send the image buffer directly to Rust instead of relying on support from Rust crates).
+        setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
+      }
+
+      refVideo.src = "";
+    } else if (file.type.startsWith("video/")) {
+      const src = URL.createObjectURL(file);
+      refVideo.src = src;
       isStaticImage = false;
-    } catch (e: any) {
-      if (!(e instanceof UnsupportedAnimationError)) throw e;
 
-      data = await getRawImageData(file);
-      isStaticImage = true;
-
-      // Parse the image directly in JS for more compatibility (we decode using the browser and
-      // send the image buffer directly to Rust instead of relying on support from Rust crates).
-      setAnimationInfo(new AnimationInfo(0, 0, data.width, data.height));
+      refVideo.addEventListener(
+        "loadedmetadata",
+        () =>
+          refVideo.src === src &&
+          setAnimationInfo(new AnimationInfo(0, refVideo.duration * 1000, refVideo.videoWidth, refVideo.videoHeight)),
+        { once: true },
+      );
+    } else {
+      throw new Error(`Unsupported MIME type "${file.type}"`);
     }
 
     setIsStaticImage(isStaticImage);
@@ -276,11 +300,12 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             displayMarginY: +formData.displayMarginY,
             flippedAxes: `${formData.flippedAxes}`,
             grayscaleBits: +formData.grayscaleBits,
-            imageMetadata: {
-              imageType: isStaticImage() ? "" : currFile()?.type.substring(6 /* image/ */),
-              imageSize: imageData() && [imageData()!.width, imageData()!.height],
-            },
             imageFilters: [],
+            imageMetadata: {
+              dimensions: [animationInfo()!.width, animationInfo()!.height],
+              duration: currFile()!.type.startsWith("video") ? refVideo.duration : null,
+              mimeType: currFile()!.type,
+            },
             imageRotation: `${formData.imageRotation}`,
             includePowerPoles: formData.includePowerPoles,
             maxGroupSize: +formData.maxGroupSize! || null,
@@ -290,15 +315,14 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
             outputFormat: `${formData.outputFormat}`,
             powerPoleName: formData.powerPoleName,
             powerPoleQuality: formData.powerPoleQuality,
+            preferGreenWires: !!(formData.wireColor === "green"),
+            preferHorizontalWires: !!(formData.connectionDirection === "horizontal"),
             resamplingFilter: `${formData.resamplingFilter}`,
-            showPreview: showPreview(),
             signalCompression,
             signalSorting:
               formData.signalSorting === "auto" ? (formData.outputFormat === "json" ? "json" : "compression") : `${formData.signalSorting}`,
             targetFps: +formData.targetFps,
             timingSignals: timingSignals(),
-            useGreenLampWires: !!(formData.wireColor === "green"),
-            useHorizontalLampWires: !!(formData.connectionDirection === "horizontal"),
           },
         },
       });
@@ -380,12 +404,20 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
     }
     setInitialValues(formData);
   });
+
   createEffect(() => localStorage.setItem(SHOW_ADVANCED_KEY, showAdvanced().toString()));
   createEffect(() => signalPresetRaw() && worker.postMessage({ signalPresetRaw: signalPresetRaw()! }));
   createEffect(() => worker.postMessage({ showPreview: { showPreview: showPreview() } }));
   createEffect(() => {
-    if (isGenerating() && currFile()!.size > 1024 * 1024 * 10) {
-      refDialogLargeFile.show();
+    if (isGenerating()) {
+      if (currFile()!.size > 1024 * 1024 * 10) {
+        refDialogLargeFile.show();
+      }
+      if (currFile()!.type.startsWith("video/")) {
+        setWorkerShouldShowPreview(true);
+      }
+    } else {
+      refDialogLargeFile.hide();
     }
   });
 
@@ -502,6 +534,20 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
         </Show>
       </div>
 
+      <div class="fixed inset-0 w-full h-full opacity-30">
+        <video
+          ref={refVideo}
+          class="w-full h-full object-contain"
+          autoplay
+          muted
+          loop
+          playsinline
+          classList={{
+            "opacity-0": isGenerating() && showPreview(),
+          }}
+        />
+      </div>
+
       <div class="fixed top-0 left-0 right-0 font-semibold">
         <Show when={isMobile()}>
           <div class="mobile-warning">⚠️ GIFtorio works best on desktop devices. Features may be limited on mobile.</div>
@@ -594,7 +640,7 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                         })
                         .finally(() => errM.test());
                     }}
-                    accept="image/*"
+                    accept="image/*,video/*"
                   />
                 </div>
               </div>
@@ -726,7 +772,8 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                 <SignalSelectors
                   values={{
                     f: { type: "virtual", name: "signal-F", quality: "normal" },
-                    s: { type: "virtual", name: "signal-B", quality: "normal" },
+                    p: { type: "virtual", name: "signal-P", quality: "normal" },
+                    s: { type: "virtual", name: "signal-S", quality: "normal" },
                     t: { type: "virtual", name: "signal-T", quality: "normal" },
                   }}
                   signalData={signalPreset()!}

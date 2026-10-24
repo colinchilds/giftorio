@@ -11,7 +11,6 @@
 	when the worker then receives a stream then the worker will tell the opener
 	to open up a link that will start the download
 -->
-<!doctype html>
 <script>
   // This will prevent the sw from restarting
   let keepAlive = () => {
@@ -73,7 +72,8 @@
     // It's important to have a messageChannel, don't want to interfere
     // with other simultaneous downloads
     if (!ports || !ports.length) {
-      throw new TypeError("[StreamSaver] You didn't send a messageChannel");
+      console.warn("[StreamSaver] You didn't send a messageChannel");
+      return;
     }
 
     if (typeof data !== "object") {

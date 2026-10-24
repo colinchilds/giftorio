@@ -6,7 +6,7 @@ export function formatDuration(totalMs: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
-  const ms = totalMs % 1000;
+  const ms = Math.floor(totalMs % 1000);
 
   return [h, m, s].map((v) => `${v}`.padStart(2, "0")).join(":") + "." + `${ms}`.padStart(3, "0");
 }
