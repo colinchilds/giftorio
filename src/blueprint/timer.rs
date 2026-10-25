@@ -67,7 +67,7 @@ pub fn generate_timer(
 
     if gray_bits > 0 {
         let en = BlueprintEntity::new(4, Arc::clone(&ARI_CB), TIMER4_POS).with_direction(DIR_L);
-        let conds = arithmetic_conds!(sig_p % (ticks_per_frame * frames_per_comb) => sig_s);
+        let conds = arithmetic_conds!(sig_t % (ticks_per_frame * frames_per_comb) => sig_s);
         ents.push(en.with_control_behavior(ControlBehavior::arithmetic(conds)));
 
         let en = BlueprintEntity::new(5, Arc::clone(&ARI_CB), TIMER5_POS).with_direction(DIR_U);
