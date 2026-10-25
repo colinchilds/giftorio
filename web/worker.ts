@@ -190,28 +190,26 @@ async function main() {
             try {
               const [width, height] = dimensions;
               const { canvas, ctx } = state;
-              if (!canvas || !ctx) {
-                throw new Error("Canvas is not initialized");
-              }
+              if (!canvas || !ctx) throw new Error("Canvas is not initialized");
 
               if (canvas.width !== width || canvas.height !== height) {
                 canvas.width = width;
                 canvas.height = height;
               }
+              const { duration, timestamp } = sample;
 
               // Mediabunny handles the sample's rotation and flip metadata.
               sample.draw(ctx, 0, 0, width, height);
+              sample.close();
 
               const pixels = ctx.getImageData(0, 0, width, height).data;
               const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
 
-              if (pixels.byteLength > dest.byteLength) {
-                throw new Error("Video frame exceeds WASM buffer capacity");
-              }
+              if (pixels.byteLength > dest.byteLength) throw new Error("Video frame exceeds WASM buffer capacity");
 
               dest.set(pixels);
 
-              return { isFinished: false, mediaTime: sample.timestamp };
+              return { isFinished: false, duration, timestamp };
             } finally {
               sample.close();
             }

@@ -20,7 +20,7 @@ pub struct FrameData<'a> {
     args: &'a BlueprintArgs,
     curr_n_us: u64,
     fps_timer: f64,
-    frame_decoder: FrameDecoder<'a>,
+    decoder: FrameDecoder<'a>,
     in_dim: UVec2,
     in_frame_i: u32,
     is_first: bool,
@@ -28,7 +28,7 @@ pub struct FrameData<'a> {
     out_dim_raw: DVec2,
     out_frame_i: usize,
     out_n_frames: u32,
-    prev_frame: Option<FrameWithTimestamp>,
+    prev_frame: Option<FrameWithTime>,
 }
 
 impl FrameData<'_> {
@@ -53,7 +53,7 @@ impl FrameData<'_> {
         uvec2(w, h)
     }
     pub fn curr_duration_us(&self) -> u64 {
-        self.frame_decoder.curr_n_us
+        self.decoder.curr_n_us
     }
     pub fn curr_total_frames(&self) -> u32 {
         self.in_frame_i
@@ -91,7 +91,7 @@ impl<'a> FrameData<'a> {
                 args,
                 curr_n_us: 0,
                 fps_timer: now_ms(),
-                frame_decoder: frame_data.frame_decoder,
+                decoder: frame_data.frame_decoder,
                 in_dim,
                 in_frame_i: 0,
                 is_first: true,
@@ -100,24 +100,22 @@ impl<'a> FrameData<'a> {
                 out_frame_i: 0,
                 prev_frame: None,
             };
-            obj.frame_decoder.dim = obj.out_dim_raw();
+            obj.decoder.dim = obj.out_dim_raw();
             obj
         })
     }
 
     pub async fn next(&mut self) -> Result<Option<image::DynamicImage>, JsValue> {
         let mut frame: Option<image::Frame> = None;
-        let use_js_decode = matches!(self.frame_decoder.state, FrameDecoderState::JsFrames { .. });
+        let use_js_decode = matches!(self.decoder.state, FrameDecoderState::JsFrames { .. });
 
         if matches!(self.args.mode, Mode::Static { .. }) {
-            if let Some(FrameWithTimestamp(f, timestamp)) = self.frame_decoder.next_frame().await? {
-                frame = Some(f);
-                self.curr_n_us = timestamp;
-            } else {
+            let Some(FrameWithTime(f, timestamp)) = self.decoder.next_frame().await? else {
                 return Ok(None);
-            }
-        }
-        if self.out_frame_i == 0 {
+            };
+            frame = Some(f);
+            self.curr_n_us = timestamp;
+        } else if self.out_frame_i == 0 {
             self.fps_timer = now_ms();
         }
 
@@ -152,17 +150,18 @@ impl<'a> FrameData<'a> {
                     frame
                 });
                 return Ok(Some(frame?));
-            }
-
-            // Only get the next frame if we're past the current output time
-            if self.out_t_us() >= self.curr_n_us {
-                let frame = self.frame_decoder.next_frame().await?;
-                let Some(FrameWithTimestamp(frame, timestamp)) = frame else {
+            } else if self.out_t_us() >= self.curr_n_us {
+                // If decoder is finished, we're done
+                if self.decoder.is_finished() {
                     return Ok(None);
+                }
+                // On last input frame, continue in case there are remaining output frames
+                let Some(FrameWithTime(frame, timestamp)) = self.decoder.next_frame().await? else {
+                    continue;
                 };
 
-                self.curr_n_us = timestamp;
-                self.prev_frame = Some(FrameWithTimestamp(frame, self.curr_n_us));
+                self.curr_n_us = timestamp + Duration::from(frame.delay()).as_micros() as u64;
+                self.prev_frame = Some(FrameWithTime(frame, self.curr_n_us));
                 self.in_frame_i += 1;
             }
 
@@ -331,10 +330,11 @@ enum FrameDecoderState<'a> {
 }
 
 #[derive(Clone)]
-struct FrameWithTimestamp(image::Frame, u64);
+struct FrameWithTime(image::Frame, u64);
 struct FrameDecoder<'a> {
     curr_n_us: u64,
     dim: UVec2,
+    finished: bool,
     state: FrameDecoderState<'a>,
 }
 impl<'a> FrameDecoder<'a> {
@@ -342,16 +342,21 @@ impl<'a> FrameDecoder<'a> {
         FrameDecoder {
             curr_n_us: 0,
             dim,
+            finished: false,
             state,
         }
     }
 
-    async fn next_frame(&mut self) -> Result<Option<FrameWithTimestamp>, JsValue> {
+    fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    async fn next_frame(&mut self) -> Result<Option<FrameWithTime>, JsValue> {
         Ok(match &mut self.state {
             FrameDecoderState::NativeFrames(frames) => {
-                frames.next().transpose().map_js_err("image")?.map(|f| {
+                let frame = frames.next().transpose().map_js_err("image")?.map(|f| {
                     let delay = f.delay();
-                    let output = FrameWithTimestamp(f, self.curr_n_us);
+                    let output = FrameWithTime(f, self.curr_n_us);
                     let delay: std::time::Duration = if delay.numer_denom_ms().0 == 0 {
                         DEFAULT_FRAME_DELAY
                     } else {
@@ -359,7 +364,9 @@ impl<'a> FrameDecoder<'a> {
                     };
                     self.curr_n_us += delay.as_micros() as u64;
                     output
-                })
+                });
+                self.finished = frame.is_none();
+                frame
             }
             FrameDecoderState::JsFrames(get_next_frame) => {
                 // TODO: maybe share this buffer if possible? instead of creating a new one every time.
@@ -377,15 +384,18 @@ impl<'a> FrameDecoder<'a> {
                 let info: JsVideoFrameData = serde_wasm_bindgen::from_value(result)?;
 
                 if info.is_finished {
+                    self.finished = true;
                     return Ok(None);
                 }
 
-                let img_buf = image::RgbaImage::from_raw(self.dim.x, self.dim.y, in_buf);
-                let img_buf = img_buf.expect("Invalid RGBA frame dimensions");
+                let duration = Duration::from_secs_f64(info.duration.unwrap());
+                let duration = image::Delay::from_saturating_duration(duration);
+                let img = image::RgbaImage::from_raw(self.dim.x, self.dim.y, in_buf);
+                let img = img.expect("Invalid RGBA frame dimensions");
 
-                Some(FrameWithTimestamp(
-                    image::Frame::new(img_buf),
-                    (info.media_time.unwrap() * 1000.0 * 1000.0) as u64,
+                Some(FrameWithTime(
+                    image::Frame::from_parts(img, 0, 0, duration),
+                    (info.timestamp.unwrap() * 1000.0 * 1000.0) as u64,
                 ))
             }
         })

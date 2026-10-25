@@ -81,12 +81,15 @@ pub enum Mode {
     Full,
     Lamps,
     LampGrid,
+
     #[serde(rename = "staticImage")]
     Static {
         #[serde(rename = "useConstantCombinators")]
         const_cb: bool,
+
         #[serde(rename = "useCombinators")]
         combs: bool,
+
         #[serde(rename = "useTimer")]
         timer: bool,
     },
@@ -131,6 +134,10 @@ pub enum OutputFormat {
 pub struct JsVideoFrameData {
     #[serde(default)]
     pub is_finished: bool,
+
     #[serde(default)]
-    pub media_time: Option<f64>,
+    pub timestamp: Option<f64>,
+
+    #[serde(default)]
+    pub duration: Option<f64>,
 }
