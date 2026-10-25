@@ -80,21 +80,21 @@ async function main() {
         if (!videoTrack) throw new Error("No video track found");
         if (!(await videoTrack.canDecode())) throw new Error("This browser cannot decode this video");
 
-        videoSink = new VideoSampleSink(videoTrack);
+        videoSink = new VideoSampleSink(videoTrack, { optimizeForLatency: true });
         videoSamples = videoSink.samples();
       }
 
       type VideoSamples = ReturnType<VideoSampleSink["samples"]>;
       type VideoSampleNext = ReturnType<VideoSamples["next"]>;
 
-      const VIDEO_LOOKAHEAD = 3;
+      let videoLookahead = 1;
       const videoSampleQueue: VideoSampleNext[] = [];
 
       let videoSampleTail: Promise<void> = Promise.resolve();
       let videoEnded = false;
 
       function prefetchVideoSamples() {
-        while (videoSamples && !videoEnded && videoSampleQueue.length < VIDEO_LOOKAHEAD) {
+        while (videoSamples && !videoEnded && videoSampleQueue.length < videoLookahead) {
           const pending = videoSampleTail.then(async () => {
             if (videoEnded) return { done: true, value: undefined } as Awaited<VideoSampleNext>;
             const result = await videoSamples!.next();
@@ -191,6 +191,11 @@ async function main() {
               const [width, height] = dimensions;
               const { canvas, ctx } = state;
               if (!canvas || !ctx) throw new Error("Canvas is not initialized");
+
+              const MAX_VIDEO_MEMORY = 512 * 1024 * 1024; // 512 MiB
+              const bytesPerFrame = width * height * 4;
+
+              videoLookahead = Math.min(512, Math.max(1, Math.floor(MAX_VIDEO_MEMORY / bytesPerFrame)));
 
               if (canvas.width !== width || canvas.height !== height) {
                 canvas.width = width;

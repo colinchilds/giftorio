@@ -335,14 +335,21 @@ struct FrameDecoder<'a> {
     curr_n_us: u64,
     dim: UVec2,
     finished: bool,
+    in_buf: Vec<u8>,
     state: FrameDecoderState<'a>,
 }
 impl<'a> FrameDecoder<'a> {
     fn new(state: FrameDecoderState<'a>, dim: UVec2) -> FrameDecoder<'a> {
+        let target_capacity = dim.element_product() as usize * 4;
+        if target_capacity > 512 * 1024 * 1024 {
+            panic!("Frame is too large! ({target_capacity} bytes, max 512 MiB)");
+        }
+
         FrameDecoder {
             curr_n_us: 0,
             dim,
             finished: false,
+            in_buf: vec![0u8; target_capacity],
             state,
         }
     }
@@ -369,11 +376,8 @@ impl<'a> FrameDecoder<'a> {
                 frame
             }
             FrameDecoderState::JsFrames(get_next_frame) => {
-                // TODO: maybe share this buffer if possible? instead of creating a new one every time.
-                let in_buf = vec![0u8; (self.dim.element_product() * 4) as usize];
-
                 let args_obj = js_sys::Object::new();
-                let mem = wasm_shared_memory(in_buf.as_slice())?;
+                let mem = wasm_shared_memory(&self.in_buf[..])?;
                 let dim = js_sys::Array::of2(&js_num(self.dim.x), &js_num(self.dim.y));
 
                 js_sys::Reflect::set(&args_obj, &"inBuffer".into(), &mem.into())?;
@@ -390,7 +394,7 @@ impl<'a> FrameDecoder<'a> {
 
                 let duration = Duration::from_secs_f64(info.duration.unwrap());
                 let duration = image::Delay::from_saturating_duration(duration);
-                let img = image::RgbaImage::from_raw(self.dim.x, self.dim.y, in_buf);
+                let img = image::RgbaImage::from_raw(self.dim.x, self.dim.y, self.in_buf.clone());
                 let img = img.expect("Invalid RGBA frame dimensions");
 
                 Some(FrameWithTime(
