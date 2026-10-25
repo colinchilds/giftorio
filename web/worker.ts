@@ -1,4 +1,4 @@
-import { ALL_FORMATS, BlobSource, Input, VideoSampleSink } from "mediabunny";
+import { ALL_FORMATS, BlobSource, Input, InputVideoTrack, VideoSample, VideoSampleSink } from "mediabunny";
 import init, {
   encode_gif,
   init as prepare_wasm,
@@ -67,20 +67,23 @@ async function main() {
       state.shouldShowPreview = showPreview;
     } else if (evt.data.generate) {
       const { imageData, args: blueprintArgs } = evt.data.generate;
-      const { outputFormat } = blueprintArgs;
+      const { outputFormat, targetFps } = blueprintArgs;
       const isVideo = blueprintArgs.imageMetadata.mimeType.startsWith("video/");
 
+      let videoDuration: number | null = null;
       let videoInput: Input | null = null;
       let videoSink: VideoSampleSink | null = null;
       let videoSamples: ReturnType<VideoSampleSink["samples"]> | null = null;
+      let videoTrack: InputVideoTrack | null = null;
 
       if (isVideo) {
         videoInput = new Input({ source: new BlobSource(new Blob([imageData])), formats: ALL_FORMATS });
+        videoTrack = await videoInput.getPrimaryVideoTrack();
 
-        const videoTrack = await videoInput.getPrimaryVideoTrack();
         if (!videoTrack) throw new Error("No video track found");
         if (!(await videoTrack.canDecode())) throw new Error("This browser cannot decode this video");
 
+        videoDuration = await videoTrack.computeDuration();
         videoSink = new VideoSampleSink(videoTrack, { optimizeForLatency: true });
         videoSamples = videoSink.samples();
       }
@@ -88,19 +91,22 @@ async function main() {
       type VideoSamples = ReturnType<VideoSampleSink["samples"]>;
       type VideoSampleNext = ReturnType<VideoSamples["next"]>;
 
-      let videoLookahead: number | null = 1;
-
-      const MAX_VIDEO_MEMORY = 512 * 1024 * 1024; // 512 MiB
       const MAX_LOOKAHEAD_FRAMES = 300;
-      const videoSampleQueue: VideoSampleNext[] = [];
+      const MAX_VIDEO_MEMORY = 512 * 1024 * 1024; // 512 MiB
 
-      let videoSampleTail: Promise<void> = Promise.resolve();
+      const videoSampleQueue: VideoSampleNext[] = [];
+      let currVideoSample: VideoSample | null = null;
+      let nextOutputTime = 0;
       let videoEnded = false;
+      let videoLookahead: number | null = 1;
+      let videoSampleTail: Promise<void> = Promise.resolve();
 
       function prefetchVideoSamples() {
         while (videoSamples && !videoEnded && videoSampleQueue.length < (videoLookahead ?? 1)) {
           const pending = videoSampleTail.then(async () => {
-            if (videoEnded) return { done: true, value: undefined } as Awaited<VideoSampleNext>;
+            if (videoEnded) {
+              return { done: true, value: undefined } as Awaited<VideoSampleNext>;
+            }
 
             const result = await videoSamples!.next();
             if (result.done) {
@@ -190,37 +196,51 @@ async function main() {
             }
           },
           async getFrameData({ inBuffer, dimensions }: { inBuffer: WasmSharedMemory; dimensions: [number, number] }) {
-            const { value: sample, done } = await getNextVideoSample();
+            const frameInterval = 1 / targetFps;
 
-            if (done) {
+            // Stop only when the output timeline reaches the video duration.
+            if (nextOutputTime >= videoDuration!) {
+              currVideoSample?.close();
+              currVideoSample = null;
               return { isFinished: true };
             }
 
-            try {
-              const [width, height] = dimensions;
-              const { canvas, ctx } = state;
-              if (!canvas || !ctx) throw new Error("Canvas is not initialized");
+            // Advance to the source frame covering this output timestamp.
+            while (!currVideoSample || nextOutputTime >= currVideoSample.timestamp + currVideoSample.duration) {
+              currVideoSample?.close();
+              currVideoSample = null;
 
-              if (canvas.width !== width || canvas.height !== height) {
-                canvas.width = width;
-                canvas.height = height;
+              const result = await getNextVideoSample();
+              if (result.done) {
+                return { isFinished: true }; // No new source frames. Keep the last frame if it covers this time.
               }
-              const { duration, timestamp } = sample;
-
-              // Mediabunny handles the sample's rotation and flip metadata.
-              sample.draw(ctx, 0, 0, width, height);
-
-              const pixels = ctx.getImageData(0, 0, width, height).data;
-              const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
-
-              if (pixels.byteLength > dest.byteLength) throw new Error("Video frame exceeds WASM buffer capacity");
-
-              dest.set(pixels);
-
-              return { isFinished: false, duration, timestamp };
-            } finally {
-              sample.close();
+              currVideoSample = result.value!;
             }
+
+            const sample = currVideoSample;
+            const [width, height] = dimensions;
+            const { canvas, ctx } = state;
+            if (!canvas || !ctx) throw new Error("Canvas is not initialized");
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width;
+              canvas.height = height;
+            }
+
+            sample.draw(ctx, 0, 0, width, height);
+            const pixels = ctx.getImageData(0, 0, width, height).data;
+            const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
+            if (pixels.byteLength > dest.byteLength) throw new Error("Video frame exceeds WASM buffer capacity");
+
+            dest.set(pixels);
+
+            const timestamp = nextOutputTime;
+            nextOutputTime += frameInterval;
+
+            return {
+              isFinished: false,
+              duration: 1 / targetFps,
+              timestamp,
+            };
           },
           shouldShowPreview() {
             try {
@@ -266,9 +286,9 @@ async function main() {
       };
 
       postMessage({ writerArgs: { type: "start", filename: `image.gif` } });
+
       await encode_gif(args, {
         async getFrameData({ inBuffer }: { inBuffer: WasmSharedMemory }) {
-          console.log("getFrameData", inBuffer);
           try {
             const nextSample = await videoSamples!.next();
             if (nextSample.done) return { isFinished: true };
