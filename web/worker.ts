@@ -87,20 +87,27 @@ async function main() {
       type VideoSamples = ReturnType<VideoSampleSink["samples"]>;
       type VideoSampleNext = ReturnType<VideoSamples["next"]>;
 
-      let videoLookahead = 1;
+      let videoLookahead: number | null = 1;
+
+      const MAX_VIDEO_MEMORY = 512 * 1024 * 1024; // 512 MiB
+      const MAX_LOOKAHEAD_FRAMES = 300;
       const videoSampleQueue: VideoSampleNext[] = [];
 
       let videoSampleTail: Promise<void> = Promise.resolve();
       let videoEnded = false;
 
       function prefetchVideoSamples() {
-        while (videoSamples && !videoEnded && videoSampleQueue.length < videoLookahead) {
+        while (videoSamples && !videoEnded && videoSampleQueue.length < (videoLookahead ?? 1)) {
           const pending = videoSampleTail.then(async () => {
             if (videoEnded) return { done: true, value: undefined } as Awaited<VideoSampleNext>;
             const result = await videoSamples!.next();
             if (result.done) {
               videoEnded = true;
+            } else if (videoLookahead === null) {
+              const bytesPerFrame = result.value!.allocationSize();
+              videoLookahead = Math.min(MAX_LOOKAHEAD_FRAMES, Math.max(1, Math.floor(MAX_VIDEO_MEMORY / bytesPerFrame)));
             }
+
             return result;
           });
 
@@ -191,11 +198,6 @@ async function main() {
               const [width, height] = dimensions;
               const { canvas, ctx } = state;
               if (!canvas || !ctx) throw new Error("Canvas is not initialized");
-
-              const MAX_VIDEO_MEMORY = 512 * 1024 * 1024; // 512 MiB
-              const bytesPerFrame = width * height * 4;
-
-              videoLookahead = Math.min(512, Math.max(1, Math.floor(MAX_VIDEO_MEMORY / bytesPerFrame)));
 
               if (canvas.width !== width || canvas.height !== height) {
                 canvas.width = width;
