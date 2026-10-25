@@ -170,15 +170,12 @@ impl<'a> FrameData<'a> {
                 self.is_first = false;
             } else {
                 let duration: f64;
-                let curr_time: f64;
                 let progress: f64;
 
                 if use_js_decode {
-                    curr_time = self.curr_n_us as f64 / 1000.0 / 1000.0;
                     duration = self.args.image_metadata.duration.unwrap();
                     progress = (self.out_frame_i as f64 / self.args.target_fps as f64) / duration;
                 } else {
-                    curr_time = self.out_frame_i as f64 * self.args.target_fps as f64;
                     duration = self.out_n_frames as f64 / self.args.target_fps as f64;
                     progress = self.out_frame_i as f64 / self.out_n_frames as f64;
                 }
@@ -190,7 +187,7 @@ impl<'a> FrameData<'a> {
                     &format!(
                         "Processing frame {}, {} / {}  ({:.1} FPS)",
                         self.out_frame_i,
-                        format_duration((curr_time * 1000.0) as u128),
+                        format_duration((progress * duration * 1000.0) as u128),
                         format_duration((duration * 1000.0) as u128),
                         1000.0 * self.out_frame_i as f64 / (now_ms() - self.fps_timer)
                     ),

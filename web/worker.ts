@@ -324,7 +324,6 @@ async function main() {
           }
         },
         async onChunk(data: Uint8Array) {
-          console.log("onChunk", data);
           return new Promise<void>((resolve, reject) => {
             try {
               const id = nextWriteId++;
