@@ -362,6 +362,7 @@ impl<'a> FrameDecoder<'a> {
                 })
             }
             FrameDecoderState::JsFrames(get_next_frame) => {
+                // TODO: maybe share this buffer if possible? instead of creating a new one every time.
                 let in_buf = vec![0u8; (self.dim.element_product() * 4) as usize];
 
                 let args_obj = js_sys::Object::new();

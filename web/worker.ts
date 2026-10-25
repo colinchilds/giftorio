@@ -43,8 +43,6 @@ async function main() {
 
   syncChannel.port1.onmessage = () => syncQ.shift()?.();
 
-  let videoStreamFinished = false;
-
   // Immediately add event listeners
   addEventListener("message", async (evt) => {
     await wasmReadyPromises.init;
@@ -69,31 +67,63 @@ async function main() {
     } else if (evt.data.generate) {
       const { imageData, args: blueprintArgs } = evt.data.generate;
       const { outputFormat } = blueprintArgs;
+      const isVideo = blueprintArgs.imageMetadata.mimeType.startsWith("video/");
 
       let videoInput: Input | null = null;
       let videoSink: VideoSampleSink | null = null;
       let videoSamples: ReturnType<VideoSampleSink["samples"]> | null = null;
 
-      if (blueprintArgs.imageMetadata.mimeType.startsWith("video/")) {
-        videoInput = new Input({
-          source: new BlobSource(new Blob([imageData])),
-          formats: ALL_FORMATS,
-        });
+      if (isVideo) {
+        videoInput = new Input({ source: new BlobSource(new Blob([imageData])), formats: ALL_FORMATS });
 
         const videoTrack = await videoInput.getPrimaryVideoTrack();
-        if (!videoTrack) {
-          throw new Error("No video track found");
-        }
-
-        if (!(await videoTrack.canDecode())) {
-          throw new Error("This browser cannot decode this video");
-        }
+        if (!videoTrack) throw new Error("No video track found");
+        if (!(await videoTrack.canDecode())) throw new Error("This browser cannot decode this video");
 
         videoSink = new VideoSampleSink(videoTrack);
         videoSamples = videoSink.samples();
       }
 
-      console.log(videoInput);
+      type VideoSamples = ReturnType<VideoSampleSink["samples"]>;
+      type VideoSampleNext = ReturnType<VideoSamples["next"]>;
+
+      const VIDEO_LOOKAHEAD = 3;
+      const videoSampleQueue: VideoSampleNext[] = [];
+
+      let videoSampleTail: Promise<void> = Promise.resolve();
+      let videoEnded = false;
+
+      function prefetchVideoSamples() {
+        while (videoSamples && !videoEnded && videoSampleQueue.length < VIDEO_LOOKAHEAD) {
+          const pending = videoSampleTail.then(async () => {
+            if (videoEnded) return { done: true, value: undefined } as Awaited<VideoSampleNext>;
+            const result = await videoSamples!.next();
+            if (result.done) {
+              videoEnded = true;
+            }
+            return result;
+          });
+
+          // Keep calls to the iterator sequential, even if a request rejects.
+          videoSampleTail = pending.then(
+            () => {},
+            () => {},
+          );
+
+          videoSampleQueue.push(pending);
+        }
+      }
+
+      async function getNextVideoSample(): VideoSampleNext {
+        prefetchVideoSamples();
+
+        const pending = videoSampleQueue.shift();
+        if (!pending) return { done: true, value: undefined } as Awaited<VideoSampleNext>;
+
+        const result = await pending;
+        prefetchVideoSamples(); // Refill the queue as soon as a frame is consumed.
+        return result;
+      }
 
       // Safe to do this now as we've already waited for init()
       if (wasmReadyPromises.setCombPosData === null) {
@@ -105,6 +135,10 @@ async function main() {
 
       await wasmReadyPromises.setCombPosData;
       await wasmReadyPromises.setSignalData;
+
+      if (isVideo) {
+        prefetchVideoSamples();
+      }
 
       try {
         waitForWriterReady();
@@ -147,7 +181,7 @@ async function main() {
             }
           },
           async getFrameData({ inBuffer, dimensions }: { inBuffer: WasmSharedMemory; dimensions: [number, number] }) {
-            const { value: sample, done } = await videoSamples!.next();
+            const { value: sample, done } = await getNextVideoSample();
 
             if (done) {
               return { isFinished: true };
@@ -155,7 +189,6 @@ async function main() {
 
             try {
               const [width, height] = dimensions;
-
               const { canvas, ctx } = state;
               if (!canvas || !ctx) {
                 throw new Error("Canvas is not initialized");
@@ -178,10 +211,7 @@ async function main() {
 
               dest.set(pixels);
 
-              return {
-                isFinished: false,
-                mediaTime: sample.timestamp,
-              };
+              return { isFinished: false, mediaTime: sample.timestamp };
             } finally {
               sample.close();
             }
