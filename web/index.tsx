@@ -28,9 +28,12 @@ const observer = new PerformanceObserver((list) => {
 });
 observer.observe({ type: "resource" });
 
-worker.addEventListener("message", async (event) => {
-  if (event.data.type === "start") {
-    const { filename } = event.data;
+worker.addEventListener("message", async (evt) => {
+  const { writerArgs } = evt.data;
+  if (!writerArgs) return;
+
+  if (writerArgs.type === "start") {
+    const { filename } = writerArgs;
     const pathname = `${Math.random().toString(36).slice(2)}-${Date.now().toString(36).slice(2)}/${filename}`;
 
     downloadUrl = new URL(`${SCOPE.href}${ORIGIN}/${pathname}`).toString();
@@ -38,8 +41,8 @@ worker.addEventListener("message", async (event) => {
     writer = streamSaver.createWriteStream(filename, { pathname }).getWriter();
 
     worker.postMessage({ type: "writerReady" });
-  } else if (event.data.chunk) {
-    const { id, data } = event.data.chunk;
+  } else if (writerArgs.chunk) {
+    const { id, data } = writerArgs.chunk;
 
     try {
       await writer!.write(data); // Safe to await now
@@ -48,7 +51,7 @@ worker.addEventListener("message", async (event) => {
       console.error(e);
       worker.postMessage({ type: "chunkWritten", id, error: e?.toString() ?? String(e) });
     }
-  } else if (event.data.type === "done") {
+  } else if (writerArgs.type === "done") {
     await writer!.close();
     writer = null;
   }

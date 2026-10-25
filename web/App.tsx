@@ -697,6 +697,22 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                 </div>
               </div>
             </form>
+
+            <button
+              class="button w-full hidden"
+              type="button"
+              onClick={async () => {
+                const data = currFile()
+                  ? imageData()
+                    ? new Uint8Array(imageData()!.data.buffer, imageData()!.data.byteOffset, imageData()!.data.byteLength)
+                    : new Uint8Array(await currFile()!.arrayBuffer())
+                  : new Uint8Array();
+                setIsGenerating(true);
+                worker.postMessage({ encodeToGif: { imageData: data } });
+              }}
+            >
+              Encode to GIF
+            </button>
           </div>
 
           <div class="panel w-90 z-10" classList={{ hidden: !showAdvanced() || isGenerating() }}>

@@ -1,5 +1,6 @@
 import { ALL_FORMATS, BlobSource, Input, VideoSampleSink } from "mediabunny";
 import init, {
+  encode_gif,
   init as prepare_wasm,
   run_blueprint,
   set_comb_pos_data,
@@ -100,6 +101,7 @@ async function main() {
         while (videoSamples && !videoEnded && videoSampleQueue.length < (videoLookahead ?? 1)) {
           const pending = videoSampleTail.then(async () => {
             if (videoEnded) return { done: true, value: undefined } as Awaited<VideoSampleNext>;
+
             const result = await videoSamples!.next();
             if (result.done) {
               videoEnded = true;
@@ -153,17 +155,17 @@ async function main() {
         const prefix = FILE_PREFIX_MAP[outputFormat as keyof typeof FILE_PREFIX_MAP];
         if (!prefix) throw new Error(`Unknown output format: ${outputFormat}`);
 
-        postMessage({ type: "start", filename: `blueprint.${prefix}` });
+        postMessage({ writerArgs: { type: "start", filename: `blueprint.${prefix}` } });
 
         await writerReady;
 
-        const callbacks = {
+        const blueprintMetadata = await run_blueprint(imageData, blueprintArgs, {
           onChunk(data: Uint8Array) {
             return new Promise<void>((resolve, reject) => {
               try {
                 const id = nextWriteId++;
                 pendingWrites.set(id, { resolve, reject });
-                postMessage({ chunk: { id, data } }, { targetOrigin: "*", transfer: [data.buffer] });
+                postMessage({ writerArgs: { chunk: { id, data } } }, { targetOrigin: "*", transfer: [data.buffer] });
               } catch (e) {
                 console.error(e);
                 reject(e);
@@ -207,7 +209,6 @@ async function main() {
 
               // Mediabunny handles the sample's rotation and flip metadata.
               sample.draw(ctx, 0, 0, width, height);
-              sample.close();
 
               const pixels = ctx.getImageData(0, 0, width, height).data;
               const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
@@ -235,11 +236,9 @@ async function main() {
               syncChannel.port2.postMessage(null);
             });
           },
-        };
-
-        const blueprintMetadata = await run_blueprint(blueprintArgs, imageData, callbacks);
+        });
         postMessage({ blueprintMetadata });
-        postMessage({ type: "done" });
+        postMessage({ writerArgs: { type: "done" } });
       } catch (e) {
         postMessage({ error: e?.toString() ?? String(e) });
       }
@@ -249,6 +248,76 @@ async function main() {
     } else if (evt.data.type === "writerReady") {
       writerReadyResolve?.();
       writerReadyResolve = null;
+    } else if (evt.data.encodeToGif) {
+      const { imageData } = evt.data.encodeToGif;
+      const videoInput = new Input({ source: new BlobSource(new Blob([imageData])), formats: ALL_FORMATS });
+      const videoTrack = await videoInput.getPrimaryVideoTrack();
+      if (!videoTrack) throw new Error("No video track found");
+      if (!(await videoTrack.canDecode())) throw new Error("This browser cannot decode this video");
+
+      const [width, height] = [await videoTrack.getDisplayWidth(), await videoTrack.getDisplayHeight()];
+
+      const videoSink = new VideoSampleSink(videoTrack);
+      const videoSamples = videoSink.samples();
+
+      const args = {
+        dim: [width, height],
+        speed: 10,
+      };
+
+      postMessage({ writerArgs: { type: "start", filename: `image.gif` } });
+      await encode_gif(args, {
+        async getFrameData({ inBuffer }: { inBuffer: WasmSharedMemory }) {
+          console.log("getFrameData", inBuffer);
+          try {
+            const nextSample = await videoSamples!.next();
+            if (nextSample.done) return { isFinished: true };
+
+            const sample = nextSample.value;
+
+            try {
+              const { canvas, ctx } = state;
+              if (!canvas || !ctx) throw new Error("Canvas is not initialized");
+              if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+              }
+              const { duration, timestamp } = sample;
+
+              // Mediabunny handles the sample's rotation and flip metadata.
+              sample.draw(ctx, 0, 0, width, height);
+
+              const pixels = ctx.getImageData(0, 0, width, height).data;
+              const dest = new Uint8Array(inBuffer.memory.buffer, inBuffer.ptr, inBuffer.len);
+
+              if (pixels.byteLength > dest.byteLength) throw new Error("Video frame exceeds WASM buffer capacity");
+
+              dest.set(pixels);
+
+              return { isFinished: false, duration, timestamp };
+            } finally {
+              sample.close();
+            }
+          } catch (e) {
+            console.error(e);
+            throw e;
+          }
+        },
+        async onChunk(data: Uint8Array) {
+          console.log("onChunk", data);
+          return new Promise<void>((resolve, reject) => {
+            try {
+              const id = nextWriteId++;
+              pendingWrites.set(id, { resolve, reject });
+              postMessage({ writerArgs: { chunk: { id, data } } }, { targetOrigin: "*", transfer: [data.buffer] });
+            } catch (e) {
+              console.error(e);
+              reject(e);
+            }
+          });
+        },
+      });
+      postMessage({ writerArgs: { type: "done" } });
     } else {
       throw new Error("Worker: Unhandled message", evt.data);
     }

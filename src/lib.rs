@@ -1,3 +1,4 @@
+use serde_wasm_bindgen::{from_value as from_js_value, to_value as to_js_value};
 use wasm_bindgen::prelude::*;
 
 mod blueprint;
@@ -9,15 +10,6 @@ mod models;
 mod progress;
 mod streaming_writer;
 mod util;
-
-fn get_cb<T: js_sys::JsFunction>(
-    callbacks: &JsValue,
-    name: &str,
-) -> Result<js_sys::Function<T>, JsValue> {
-    js_sys::Reflect::get(callbacks, &name.into())?
-        .dyn_into::<js_sys::Function<T>>()
-        .map_err(|_| JsValue::from_str(&format!("{name} must be a function")))
-}
 
 #[wasm_bindgen]
 pub fn init() {
@@ -36,8 +28,8 @@ pub fn init() {
 /// A Factorio blueprint string on success.
 #[wasm_bindgen]
 pub async fn run_blueprint(
-    options: JsValue,
     image_data: &[u8], // note: may be empty
+    args: JsValue,
     callbacks: JsValue,
     // on_chunk: &js_sys::Function<fn(js_sys::Uint8Array) -> js_sys::Promise>,
     // on_preview: &js_sys::Function<
@@ -45,8 +37,9 @@ pub async fn run_blueprint(
     // >,
 ) -> Result<JsValue, JsValue> {
     use blueprint::{encoder::BlueprintEncoder, generator::BlueprintGenerator};
+    use image::GenericImageView;
     use image_processing::{FrameCallback, FrameData, JsVideoFrameCallback};
-    use js_sys as js;
+    use js_sys::{self as js, Function as JsFn};
     use models::*;
     use std::{
         cell::{Cell, RefCell},
@@ -59,17 +52,18 @@ pub async fn run_blueprint(
 
     const SYNC_TIME_MS: f64 = 1000.0;
 
-    let get_next_frame = get_cb::<JsVideoFrameCallback>(&callbacks, "getFrameData")?;
-    let on_chunk = get_cb::<fn(js::Uint8Array) -> js::Promise>(&callbacks, "onChunk")?;
-    let on_frame = get_cb::<fn(JsValue) -> js::Undefined>(&callbacks, "onFrame")?;
-    let should_show_preview = get_cb::<fn() -> js::Boolean>(&callbacks, "shouldShowPreview")?;
-    let yield_to_js = get_cb::<fn() -> js::Promise>(&callbacks, "yieldToJs")?;
+    let get_next_frame = callbacks.reflect_get::<JsFn<JsVideoFrameCallback>>("getFrameData")?;
+    let on_chunk = callbacks.reflect_get::<JsFn<fn(js::Uint8Array) -> js::Promise>>("onChunk")?;
+    let on_frame = callbacks.reflect_get::<JsFn<fn(JsValue) -> js::Undefined>>("onFrame")?;
+    let should_show_preview =
+        callbacks.reflect_get::<JsFn<fn() -> js::Boolean>>("shouldShowPreview")?;
+    let yield_to_js = callbacks.reflect_get::<JsFn<fn() -> js::Promise>>("yieldToJs")?;
 
     let on_frame = Rc::new(on_frame);
     let should_show_preview = Rc::new(should_show_preview);
     let yield_to_js = Rc::new(yield_to_js);
 
-    let mut args: BlueprintArgs = serde_wasm_bindgen::from_value(options)?;
+    let mut args: BlueprintArgs = from_js_value(args)?;
     let mut frame_data: Option<FrameData> = None;
     let promises = Rc::new(const { RefCell::new(VecDeque::<Vec<js::Promise>>::new()) });
     let promise_q = Rc::clone(&promises);
@@ -107,11 +101,8 @@ pub async fn run_blueprint(
                 };
 
                 let args_obj = js::Object::new();
-                let mem = wasm_shared_memory(rgba)?;
-                let dim = js::Array::of2(&js_num(img.width()), &js_num(img.height()));
-
-                js::Reflect::set(&args_obj, &"outBuffer".into(), &mem.into())?;
-                js::Reflect::set(&args_obj, &"dimensions".into(), &dim)?;
+                args_obj.reflect_set("outBuffer", wasm_shared_memory(rgba)?)?;
+                args_obj.reflect_set("dimensions", to_js_value(&img.dimensions())?)?;
 
                 on_frame.call(&JsValue::NULL, (&args_obj.into(),))?;
 
@@ -133,7 +124,7 @@ pub async fn run_blueprint(
     }
 
     // Custom writer that invokes a callback whenever chunk size is reached.
-    let writer = StreamingWriter::new(2 * 1024 * 1024, |chunk| {
+    let writer = StreamingWriter::new(128 * 1024, |chunk| {
         let data = js::Uint8Array::from(chunk.as_slice());
         let promise = on_chunk.call(&JsValue::NULL, (&data,))?;
         if let Some(q) = promise_q.borrow_mut().back_mut() {
@@ -195,5 +186,20 @@ pub async fn set_signal_data(data_json: &[u8]) -> Result<(), JsValue> {
 #[wasm_bindgen]
 pub async fn set_comb_pos_data(data_json: &[u8]) -> Result<(), JsValue> {
     blueprint::combinator::load_comb_pos_json(data_json)?;
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub async fn encode_gif(args: JsValue, callbacks: JsValue) -> Result<(), JsValue> {
+    use image_processing::{JsVideoFrameCallback, encode_gif};
+    use js_sys::{self as js, Function as JsFn};
+    use util::JsReflectGetSet;
+
+    let args: models::EncodeGifArgs = serde_wasm_bindgen::from_value(args)?;
+    let get_next_frame = callbacks.reflect_get::<JsFn<JsVideoFrameCallback>>("getFrameData")?;
+    let on_chunk = callbacks.reflect_get::<JsFn<fn(js::Uint8Array) -> js::Promise>>("onChunk")?;
+
+    encode_gif(get_next_frame, on_chunk, &args).await?;
+
     Ok(())
 }

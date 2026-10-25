@@ -1,3 +1,4 @@
+use glam::UVec2;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -140,4 +141,10 @@ pub struct JsVideoFrameData {
 
     #[serde(default)]
     pub duration: Option<f64>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct EncodeGifArgs {
+    pub dim: UVec2,
+    pub speed: u8,
 }

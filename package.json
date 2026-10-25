@@ -6,8 +6,10 @@
   "scripts": {
     "start": "vite",
     "dev": "vite --debug",
-    "build": "wasm-pack build --target web --release && vite build",
-    "serve": "vite preview"
+    "build": "npm run wasm:build && vite build",
+    "serve": "vite preview",
+    "wasm:build": "wasm-pack build --target web --release",
+    "wasm:watch": "nodemon --watch src --watch Cargo.toml --ext rs,toml --exec \"npm run wasm:build && npm run start\""
   },
   "license": "MIT",
   "devDependencies": {
@@ -27,6 +29,7 @@
     "fflate": "^0.8.3",
     "mediabunny": "^1.62.1",
     "modern-gif": "^2.1.0",
+    "nodemon": "^3.1.14",
     "solid-js": "^1.9.3",
     "streamsaver": "^2.0.6"
   },

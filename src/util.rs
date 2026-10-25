@@ -57,10 +57,19 @@ impl<T: Clone> OneOrMany<T> {
     }
 }
 
+pub trait JsReflectGetSet: Into<JsValue> + Clone {
+    fn reflect_get<T: JsCast>(&self, k: impl Into<JsValue>) -> Result<T, JsValue> {
+        js_sys::Reflect::get(&self.clone().into(), &k.into())?.dyn_into()
+    }
+    fn reflect_set(&self, k: impl Into<JsValue>, v: impl Into<JsValue>) -> Result<bool, JsValue> {
+        js_sys::Reflect::set(&self.clone().into(), &k.into(), &v.into())
+    }
+}
+impl<T: Into<JsValue> + Clone> JsReflectGetSet for T {}
+
 pub trait ResultJsExt<T, E> {
     fn map_js_err(self, prefix: &str) -> Result<T, JsValue>;
 }
-
 impl<T, E: std::fmt::Display> ResultJsExt<T, E> for Result<T, E> {
     fn map_js_err(self, prefix: &str) -> Result<T, JsValue> {
         self.map_err(|e| JsValue::from_str(&format!("{prefix}: {e}")))

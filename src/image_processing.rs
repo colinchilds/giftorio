@@ -2,9 +2,10 @@ use crate::constants::DEFAULT_FRAME_DELAY;
 use crate::image_utils::{AnimationInfo, animation_info, resize_dimensions};
 use crate::models::{ImageRotation::*, *};
 use crate::progress::set_progress;
-use crate::util::{ResultJsExt, format_duration, js_num, now_ms, wasm_shared_memory};
+use crate::util::{JsReflectGetSet, ResultJsExt, format_duration, now_ms, wasm_shared_memory};
 use glam::{DVec2, UVec2, uvec2};
 use image::{AnimationDecoder, ImageDecoder, imageops};
+use js_sys::{self as js, Function as JsFn};
 use std::{pin::Pin, time::Duration};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -67,7 +68,7 @@ impl<'a> FrameData<'a> {
         image_data: &'a [u8],
         args: &'a BlueprintArgs,
         on_frame: Option<FrameCallback>,
-        js_next_frame: Option<js_sys::Function<JsVideoFrameCallback>>,
+        js_next_frame: Option<JsFn<JsVideoFrameCallback>>,
     ) -> Result<Self, JsValue> {
         let frame_data = get_frames(image_data, args, js_next_frame)?;
         let in_dim = frame_data.dimensions();
@@ -268,7 +269,7 @@ impl ImageFrameData<'_> {
 pub fn get_frames<'a>(
     data: &'a [u8],
     args: &BlueprintArgs,
-    js_next_frame: Option<js_sys::Function<JsVideoFrameCallback>>,
+    js_next_frame: Option<JsFn<JsVideoFrameCallback>>,
 ) -> Result<ImageFrameData<'a>, JsValue> {
     let cursor = std::io::Cursor::new(data);
     let info: AnimationInfo;
@@ -326,7 +327,7 @@ pub fn get_frames<'a>(
 
 enum FrameDecoderState<'a> {
     NativeFrames(image::Frames<'a>),
-    JsFrames(js_sys::Function<JsVideoFrameCallback>),
+    JsFrames(JsFn<JsVideoFrameCallback>),
 }
 
 #[derive(Clone)]
@@ -376,13 +377,9 @@ impl<'a> FrameDecoder<'a> {
                 frame
             }
             FrameDecoderState::JsFrames(get_next_frame) => {
-                let args_obj = js_sys::Object::new();
-                let mem = wasm_shared_memory(&self.in_buf[..])?;
-                let dim = js_sys::Array::of2(&js_num(self.dim.x), &js_num(self.dim.y));
-
-                js_sys::Reflect::set(&args_obj, &"inBuffer".into(), &mem.into())?;
-                js_sys::Reflect::set(&args_obj, &"dimensions".into(), &dim)?;
-
+                let args_obj = js::Object::new();
+                args_obj.reflect_set("inBuffer", wasm_shared_memory(&self.in_buf[..])?)?;
+                args_obj.reflect_set("dimensions", serde_wasm_bindgen::to_value(&self.dim)?)?;
                 let promise = get_next_frame.call(&JsValue::NULL, (&args_obj.into(),))?;
                 let result = JsFuture::from(promise).await?;
                 let info: JsVideoFrameData = serde_wasm_bindgen::from_value(result)?;
@@ -406,7 +403,62 @@ impl<'a> FrameDecoder<'a> {
     }
 }
 
-pub type JsVideoFrameCallback = fn(JsValue) -> js_sys::Promise<JsValue>;
+pub type JsVideoFrameCallback = fn(JsValue) -> js::Promise<JsValue>;
+
+pub async fn encode_gif(
+    get_next_frame: JsFn<JsVideoFrameCallback>,
+    on_chunk: JsFn<fn(js::Uint8Array) -> js::Promise>,
+    args: &EncodeGifArgs,
+) -> Result<(), JsValue> {
+    use crate::streaming_writer::StreamingWriter;
+    use image::codecs::gif::{GifEncoder, Repeat};
+    use std::{cell::RefCell, rc::Rc};
+
+    let promises = Rc::new(const { RefCell::new(Vec::<js::Promise>::new()) });
+    let promise_q = Rc::clone(&promises);
+
+    // Custom writer that invokes a callback whenever chunk size is reached.
+    let mut writer = StreamingWriter::new(128 * 1024, |chunk| {
+        let data = js::Uint8Array::from(&chunk[..]);
+        let promise = on_chunk.call(&JsValue::NULL, (&data,))?;
+        promise_q.borrow_mut().push(promise);
+        Ok(())
+    });
+    let mut encoder = GifEncoder::new_with_speed(&mut writer, args.speed as i32);
+    (encoder.set_repeat(Repeat::Infinite)).map_js_err("gif encoding error")?;
+
+    let in_buf = vec![0u8; args.dim.element_product() as usize * 4];
+    let flush = async || -> Result<(), JsValue> {
+        let pending = std::mem::take(&mut *promises.borrow_mut());
+        for promise in pending {
+            JsFuture::from(promise).await?;
+        }
+        Ok(())
+    };
+
+    loop {
+        let info: JsVideoFrameData = serde_wasm_bindgen::from_value({
+            let js_args = js::Object::new();
+            js_args.reflect_set("inBuffer", wasm_shared_memory(&in_buf[..])?)?;
+            let promise = get_next_frame.call(&JsValue::NULL, (&js_args.into(),))?;
+            JsFuture::from(promise).await?
+        })?;
+        if info.is_finished {
+            break;
+        }
+
+        let duration = Duration::from_secs_f64(info.duration.unwrap());
+        let duration = image::Delay::from_saturating_duration(duration);
+        let img = image::RgbaImage::from_raw(args.dim.x, args.dim.y, in_buf.clone());
+        let img = img.expect("Invalid RGBA frame dimensions");
+        let f = image::Frame::from_parts(img, 0, 0, duration);
+        encoder.encode_frame(f).map_js_err("Encode error")?;
+
+        flush().await?;
+    }
+
+    Ok(())
+}
 
 /// Converts an RGB pixel to a single 24 bit integer (inside a u32, I know...).
 ///
