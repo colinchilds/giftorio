@@ -1,5 +1,5 @@
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
+use std::rc::Rc;
+use serde::{Deserialize, Serialize, Serializer};
 #[derive(Serialize)]
 pub struct Blueprint {
     pub blueprint: BlueprintInner,
@@ -23,8 +23,8 @@ pub struct Icon {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Signal {
     #[serde(rename = "type")]
-    pub type_: Arc<String>,
-    pub name: Arc<String>,
+    pub type_: Rc<String>,
+    pub name: Rc<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<&'static str>,
 }
@@ -105,14 +105,14 @@ pub enum ControlBehavior {
     ColorLamp {
         use_colors: bool,
         color_mode: i8,
-        rgb_signal: Arc<Signal>,
+        rgb_signal: Rc<Signal>,
     },
     GrayLamp {
         use_colors: bool,
         color_mode: i8,
-        red_signal: Arc<Signal>,
-        green_signal: Arc<Signal>,
-        blue_signal: Arc<Signal>,
+        red_signal: Rc<Signal>,
+        green_signal: Rc<Signal>,
+        blue_signal: Rc<Signal>,
     },
 }
 
@@ -144,7 +144,39 @@ pub struct Filter {
 #[derive(Serialize)]
 pub struct DeciderConditions {
     pub conditions: Vec<Condition>,
-    pub outputs: Vec<CombinatorOutput>,
+    pub outputs: DeciderOutputs,
+}
+
+pub enum DeciderOutputs {
+    List(Vec<CombinatorOutput>),
+    /// `values[i]` is output on `signals[i]`. Stored as bare values to keep frame data small.
+    Pixels {
+        signals: Rc<[Rc<Signal>]>,
+        values: Vec<i32>,
+    },
+}
+
+/// Must serialize identically to `CombinatorOutput`.
+#[derive(Serialize)]
+struct PixelOutput<'a> {
+    copy_count_from_input: bool,
+    constant: i32,
+    signal: &'a Signal,
+}
+
+impl Serialize for DeciderOutputs {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            DeciderOutputs::List(outputs) => outputs.serialize(serializer),
+            DeciderOutputs::Pixels { signals, values } => serializer.collect_seq(
+                values.iter().zip(signals.iter()).map(|(&constant, signal)| PixelOutput {
+                    copy_count_from_input: false,
+                    constant,
+                    signal,
+                }),
+            ),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -161,7 +193,7 @@ pub struct CombinatorOutput {
     pub copy_count_from_input: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constant: Option<i32>,
-    pub signal: Arc<Signal>,
+    pub signal: Rc<Signal>,
 }
 
 #[derive(Serialize)]

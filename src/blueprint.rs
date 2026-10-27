@@ -7,9 +7,10 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use image::GenericImageView;
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
+use base64::write::EncoderStringWriter;
+use std::io::BufWriter;
+use std::rc::Rc;
 use wasm_bindgen::JsValue;
-use std::sync::Arc;
 
 /// Encodes the blueprint JSON as a Factorio blueprint string.
 ///
@@ -21,22 +22,24 @@ use std::sync::Arc;
 ///
 /// A Factorio blueprint string on success.
 pub fn encode_blueprint(blueprint: &Blueprint) -> Result<String, JsValue> {
-    report_progress(80, "Encoding blueprint...");
-    let json_bytes = serde_json::to_vec(blueprint)
+    report_progress(80, "Encoding and compressing blueprint...");
+    // Factorio blueprint strings are a version byte ('0') followed by the base64 data.
+    let base64_writer = EncoderStringWriter::from(String::from("0"), base64::STANDARD);
+    let encoder = ZlibEncoder::new(base64_writer, Compression::best());
+    // Without buffering, serde's many tiny writes make zlib extremely slow.
+    let mut writer = BufWriter::with_capacity(64 * 1024, encoder);
+    serde_json::to_writer(&mut writer, blueprint)
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
-
-    report_progress(85, "Compressing blueprint...");
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-    encoder
-        .write_all(&json_bytes)
+    // Not flush(): it triggers a zlib sync flush, which changes the output bytes.
+    let encoder = writer
+        .into_inner()
         .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
-    let compressed = encoder
+    let base64_writer = encoder
         .finish()
         .map_err(|e| JsValue::from_str(&format!("Compression finish error: {}", e)))?;
-
-    let b64_encoded = base64::encode(&compressed);
+    let blueprint_string = base64_writer.into_inner();
     report_progress(100, "Blueprint generation complete. Loading to browser...");
-    Ok(format!("0{}", b64_encoded))
+    Ok(blueprint_string)
 }
 
 /// Generates timer entities and wires for the blueprint's timing mechanism.
@@ -98,16 +101,16 @@ pub fn generate_timer(
         .with_control_behavior(ControlBehavior::Decider {
             decider_conditions: DeciderConditions {
                 conditions: vec![Condition {
-                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
+                    first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None },
                     constant: stop as i32,
                     comparator: COMPARATOR_LESS,
                     compare_type: None,
                 }],
-                outputs: vec![CombinatorOutput {
+                outputs: DeciderOutputs::List(vec![CombinatorOutput {
                     copy_count_from_input: true,
                     constant: None,
-                    signal: Arc::from(Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None }),
-                }],
+                    signal: Rc::from(Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None }),
+                }]),
             },
         })
         .with_description("[virtual-signal=signal-T] is our timer that ticks up 60 times per second up to the max ticks for the entire gif. \
@@ -125,11 +128,11 @@ pub fn generate_timer(
         .with_direction(DIRECTION_RIGHT)
         .with_control_behavior(ControlBehavior::Arithmetic {
             arithmetic_conditions: ArithmeticConditions {
-                first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
+                first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None },
                 second_signal: None,
                 second_constant: Some(1),
                 operation: OPERATION_SUB,
-                output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
+                output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None },
             },
         }),
     );
@@ -151,11 +154,11 @@ pub fn generate_timer(
             .with_direction(DIRECTION_LEFT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
+                    first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some((ticks_per_frame * frames_per_combinator) as i32),
                     operation: OPERATION_MOD,
-                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_S.to_string()), quality: None },
+                    output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_S.to_string()), quality: None },
                 },
             }),
         );
@@ -171,11 +174,11 @@ pub fn generate_timer(
             )
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_S.to_string()), quality: None },
+                    first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_S.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some(ticks_per_frame as i32),
                     operation: OPERATION_DIV,
-                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_F.to_string()), quality: None },
+                    output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_F.to_string()), quality: None },
                 },
             }),
         );
@@ -192,11 +195,11 @@ pub fn generate_timer(
             .with_direction(DIRECTION_RIGHT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                    first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some(grayscale_bits as i32),
                     operation: OPERATION_MUL,
-                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                    output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                 },
             })
             .with_description("Calculates the bit shift necessary for the frame we should be rendering."),
@@ -306,7 +309,8 @@ pub fn generate_substations(
 ///
 /// # Arguments
 ///
-/// * `frame_outputs` - A vector of all the outputs for a frame.
+/// * `frame_outputs` - Per-frame pixel values, one entry per pixel.
+/// * `signals` - The signals each pixel value is output on (pixel `i` uses `signals[i]`).
 /// * `occupied_y` - Set of Y coordinates occupied by substations.
 /// * `ticks_per_group` - Ticks per group.
 /// * `base_entity_number` - Starting entity number.
@@ -319,7 +323,8 @@ pub fn generate_substations(
 ///
 /// A tuple containing combinator entities, their wires, and the next entity number.
 pub fn generate_frame_combinators(
-    frame_outputs: &[Vec<CombinatorOutput>],
+    frame_outputs: Vec<Vec<i32>>,
+    signals: &Rc<[Rc<Signal>]>,
     occupied_y: &HashSet<i32>,
     ticks_per_group: u32,
     base_entity_number: u32,
@@ -348,11 +353,11 @@ pub fn generate_frame_combinators(
             .with_direction(DIRECTION_RIGHT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
-                    second_signal: Some(Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_F.to_string()), quality: None }),
+                    first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
+                    second_signal: Some(Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_F.to_string()), quality: None }),
                     second_constant: None,
                     operation: OPERATION_SHIFT_R,
-                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                    output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                 },
             }),
         );
@@ -374,11 +379,11 @@ pub fn generate_frame_combinators(
             .with_direction(DIRECTION_RIGHT)
             .with_control_behavior(ControlBehavior::Arithmetic {
                 arithmetic_conditions: ArithmeticConditions {
-                    first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                    first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                     second_signal: None,
                     second_constant: Some(if grayscale_bits == 1 { 1 } else if grayscale_bits == 4 { 15 } else { 255 }),
                     operation: OPERATION_AND,
-                    output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                    output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                 },
             }),
         );
@@ -397,11 +402,11 @@ pub fn generate_frame_combinators(
                 .with_direction(DIRECTION_LEFT)
                 .with_control_behavior(ControlBehavior::Arithmetic {
                     arithmetic_conditions: ArithmeticConditions {
-                        first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                        first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                         second_signal: None,
                         second_constant: Some(if grayscale_bits == 1 { 255 } else { 17 }),
                         operation: OPERATION_MUL,
-                        output_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_EACH.to_string()), quality: None },
+                        output_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_EACH.to_string()), quality: None },
                     },
                 }),
             );
@@ -415,7 +420,7 @@ pub fn generate_frame_combinators(
     let mut y_offset = 0.0;
     let mut row_in_this_column = 0;
     let mut previous_first_decider: Option<u32> = None;
-    for (i, outputs) in frame_outputs.iter().enumerate() {
+    for (i, outputs) in frame_outputs.into_iter().enumerate() {
         let mut current_y = base_y - row_in_this_column as f64 - y_offset;
         if occupied_y.contains(&(current_y.floor() as i32)) {
             y_offset += 2.0;
@@ -437,19 +442,22 @@ pub fn generate_frame_combinators(
             decider_conditions: DeciderConditions {
                 conditions: vec![
                     Condition {
-                        first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
+                        first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None },
                         constant: lower_bound,
                         comparator: COMPARATOR_GREATER_EQUAL,
                         compare_type: None,
                     },
                     Condition {
-                        first_signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(SIGNAL_T.to_string()), quality: None },
+                        first_signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(SIGNAL_T.to_string()), quality: None },
                         constant: upper_bound,
                         comparator: COMPARATOR_LESS,
                         compare_type: Some(COMPARE_AND),
                     },
                 ],
-                outputs: outputs.clone(), // Cloning the outputs once per entity.
+                outputs: DeciderOutputs::Pixels {
+                    signals: Rc::clone(signals),
+                    values: outputs,
+                },
             },
         });
         new_entities.push(decider_entity);
@@ -497,7 +505,7 @@ pub fn generate_frame_combinators(
 ///
 /// A tuple with lamp entities, lamp wires, the next entity number, and the top-right lamp entity.
 pub fn generate_lamps(
-    signals: Vec<Arc<Signal>>,
+    signals: &[Rc<Signal>],
     grid_width: u32,
     grid_height: u32,
     occupied_cells: &HashSet<(i32, i32)>,
@@ -520,7 +528,7 @@ pub fn generate_lamps(
                 continue;
             }
             let index = (r as u32 * grid_width + c as u32) as usize;
-            let signal = Arc::clone(&signals[index]);
+            let signal = Rc::clone(&signals[index]);
             let colors = if use_grayscale {
                 ControlBehavior::GrayLamp {
                     use_colors: true,
@@ -588,7 +596,7 @@ pub fn update_full_blueprint(
     report_progress(0, "Starting blueprint update");
 
     // Get signals internally.
-    let signals: Vec<Arc<Signal>> = get_signals_with_quality(use_dlc);
+    let signals = get_signals_with_quality(use_dlc);
 
     if sampled_frames.is_empty() {
         return Err(JsValue::from_str("No sampled frames"));
@@ -648,14 +656,14 @@ pub fn update_full_blueprint(
                         .iter()
                         .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
                         .collect();
-                    pack_grayscale_frames_to_outputs(&cropped_frames, signals.clone(), grayscale_bits)
+                    pack_grayscale_frames_to_outputs(&cropped_frames, &signals, grayscale_bits)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut outputs = Vec::new();
             for frame in &sampled_frames {
                 let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-                outputs.push(frame_to_outputs(&cropped, signals.clone())?);
+                outputs.push(frame_to_outputs(&cropped, &signals)?);
             }
             outputs
         };
@@ -663,7 +671,8 @@ pub fn update_full_blueprint(
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = if use_grayscale { next_entity } else { next_entity + 1 };
         let (group_combinators, mut group_comb_wires, new_next_entity) = generate_frame_combinators(
-            &group_frames_outputs,
+            group_frames_outputs,
+            &signals,
             &substation_occupied_y,
             ticks_per_frame * frames_per_combinator,
             next_entity,
@@ -678,7 +687,7 @@ pub fn update_full_blueprint(
         next_entity = new_next_entity;
 
         let (group_lamps, mut group_lamp_wires, new_next_entity, top_right_lamp) = generate_lamps(
-            signals.clone(),
+            &signals,
             group_width,
             full_height,
             &occupied_cells,
@@ -719,7 +728,7 @@ pub fn update_full_blueprint(
     let blueprint = Blueprint {
         blueprint: BlueprintInner {
             icons: vec![Icon {
-                signal: Signal { type_: Arc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Arc::new(DECIDER_COMBINATOR.to_string()), quality: None, },
+                signal: Signal { type_: Rc::new(SIGNAL_TYPE_VIRTUAL.to_string()), name: Rc::new(DECIDER_COMBINATOR.to_string()), quality: None, },
                 index: 1,
             }],
             entities: all_entities,
@@ -742,11 +751,11 @@ pub fn update_full_blueprint(
 ///
 /// # Returns
 ///
-/// A vector of CombinatorOutputs for the frame
+/// One packed RGB value per pixel; pixel `i` is output on `signals[i]`.
 pub fn frame_to_outputs(
     frame: &image::DynamicImage,
-    signals: Vec<Arc<Signal>>,
-) -> Result<Vec<CombinatorOutput>, JsValue> {
+    signals: &[Rc<Signal>],
+) -> Result<Vec<i32>, JsValue> {
     let (width, height) = frame.dimensions();
     let num_pixels = (width * height) as usize;
     if num_pixels > signals.len() {
@@ -757,20 +766,11 @@ pub fn frame_to_outputs(
         )));
     }
     let rgb_image = frame.to_rgb8();
-    let pixels = rgb_image.into_raw();
-    let mut outputs = Vec::with_capacity(num_pixels);
-    for (i, chunk) in pixels.chunks(3).enumerate() {
-        if chunk.len() < 3 {
-            continue;
-        }
-        let value = rgb_to_int(chunk[0], chunk[1], chunk[2]) as i32;
-        let signal = Arc::clone(&signals[i]);
-        outputs.push(CombinatorOutput {
-            copy_count_from_input: false,
-            constant: Some(value),
-            signal
-        });
-    }
+    let outputs = rgb_image
+        .as_raw()
+        .chunks_exact(3)
+        .map(|chunk| rgb_to_int(chunk[0], chunk[1], chunk[2]) as i32)
+        .collect();
     Ok(outputs)
 }
 
@@ -784,12 +784,12 @@ pub fn frame_to_outputs(
 ///
 /// # Returns
 ///
-/// A vector of JSON objects representing output filters.
+/// One packed value per pixel; pixel `i` is output on `signals[i]`.
 pub fn pack_grayscale_frames_to_outputs(
     frames: &[image::DynamicImage],
-    signals: Vec<Arc<Signal>>,
+    signals: &[Rc<Signal>],
     grayscale_bits: u32,
-) -> Result<Vec<CombinatorOutput>, JsValue> {
+) -> Result<Vec<i32>, JsValue> {
     if frames.is_empty() {
         return Err(JsValue::from_str("No frames provided for packing"));
     }
@@ -822,12 +822,7 @@ pub fn pack_grayscale_frames_to_outputs(
                 packed_value |= (pixel_value as u32) << (8 * j);
             }
         }
-        let signal = Arc::clone(&signals[i]);
-        outputs.push(CombinatorOutput {
-            copy_count_from_input: false,
-            constant: Some(packed_value as i32),
-            signal,
-        });
+        outputs.push(packed_value as i32);
     }
     Ok(outputs)
 }

@@ -1,12 +1,13 @@
 use image::AnimationDecoder;
-use image::{DynamicImage, Frame};
+use image::{DynamicImage, Frames, RgbaImage};
 use image::imageops::FilterType;
 use rayon::prelude::*;
 use std::io::Cursor;
 use wasm_bindgen::prelude::*;
 use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_SECOND};
 
-/// Decodes the provided image data into a vector of frames based on the image type.
+
+/// Creates a streaming frame decoder for the provided image data.
 ///
 /// Supported types: "gif" and "webp".
 ///
@@ -17,8 +18,8 @@ use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_SECOND};
 ///
 /// # Returns
 ///
-/// A vector of `Frame` objects or a JavaScript error.
-pub fn get_frames(image_data: &[u8], image_type: &str) -> Result<Vec<Frame>, JsValue> {
+/// An iterator that decodes one frame at a time, or a JavaScript error.
+pub fn get_frames<'a>(image_data: &'a [u8], image_type: &str) -> Result<Frames<'a>, JsValue> {
     let cursor = Cursor::new(image_data);
     let decoder_result = match image_type {
         "gif" => image::codecs::gif::GifDecoder::new(cursor).map(|d| d.into_frames()),
@@ -26,11 +27,42 @@ pub fn get_frames(image_data: &[u8], image_type: &str) -> Result<Vec<Frame>, JsV
         _ => return Err(JsValue::from_str("Unsupported image type. Only 'gif' and 'webp' are allowed.")),
     };
 
-    let frames = decoder_result
-        .map_err(|e| JsValue::from_str(&format!("{} decode error: {}", image_type.to_uppercase(), e)))?;
+    decoder_result
+        .map_err(|e| JsValue::from_str(&format!("{} decode error: {}", image_type.to_uppercase(), e)))
+}
 
-    frames.collect_frames()
-        .map_err(|e| JsValue::from_str(&format!("Frame collection error: {}", e)))
+/// Reads the delay of every frame in milliseconds.
+///
+/// # Arguments
+///
+/// * `image_data` - Raw image data.
+/// * `image_type` - Image type (e.g., "gif" or "webp").
+///
+/// # Returns
+///
+/// A vector with one delay per frame, or a JavaScript error.
+fn get_frame_delays(image_data: &[u8], image_type: &str) -> Result<Vec<u32>, JsValue> {
+    if image_type != "gif" {
+        return get_frames(image_data, image_type)?
+            .map(|frame| frame.map(|f| f.delay().numer_denom_ms().0))
+            .collect::<Result<_, _>>()
+            .map_err(|e| JsValue::from_str(&format!("Frame decode error: {}", e)));
+    }
+
+    let mut options = gif::DecodeOptions::new();
+    options.skip_frame_decoding(true);
+    let mut decoder = options
+        .read_info(Cursor::new(image_data))
+        .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?;
+    let mut delays = Vec::new();
+    while let Some(frame) = decoder
+        .read_next_frame()
+        .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?
+    {
+        // GIF delays are stored in units of 10ms.
+        delays.push(u32::from(frame.delay) * 10);
+    }
+    Ok(delays)
 }
 
 /// Processes the image by decoding frames, sampling, resizing, and optionally converting to grayscale.
@@ -53,19 +85,18 @@ pub fn process_image(
     target_fps: u32,
     grayscale_bits: u32,
 ) -> Result<(Vec<DynamicImage>, u32), JsValue> {
-    // First pass: decode frames and gather durations.
-    let frame_vec = get_frames(image_data, image_type)?;
-    let mut durations = Vec::with_capacity(frame_vec.len());
-    let mut total_ms = 0u32;
-    for frame in &frame_vec {
-        let (ms, _) = frame.delay().numer_denom_ms();
-        let delay = if ms == 0 { DEFAULT_FRAME_DELAY_MS } else { ms };
-        durations.push(delay);
-        total_ms += delay;
+    // First pass: gather frame durations.
+    let durations: Vec<u32> = get_frame_delays(image_data, image_type)?
+        .into_iter()
+        .map(|ms| if ms == 0 { DEFAULT_FRAME_DELAY_MS } else { ms })
+        .collect();
+    if durations.is_empty() {
+        return Err(JsValue::from_str("Image contains no frames"));
     }
+    let total_ms: u32 = durations.iter().sum();
 
     // Compute average frame duration and derive FPS.
-    let avg_frame_duration = total_ms as f64 / frame_vec.len() as f64;
+    let avg_frame_duration = total_ms as f64 / durations.len() as f64;
     let original_fps = (MS_PER_SECOND / avg_frame_duration).floor() as u32;
     let effective_fps = target_fps.min(original_fps);
 
@@ -87,28 +118,73 @@ pub fn process_image(
         sampled_indices.push(0);
     }
 
-    let (width, height) = frame_vec[0].buffer().dimensions();
-    let scale_factor = (max_size as f64 / width as f64)
-        .min(max_size as f64 / height as f64)
-        .min(1.0);
-    let new_width = (width as f64 * scale_factor).round() as u32;
-    let new_height = (height as f64 * scale_factor).round() as u32;
+    let mut sample_counts = vec![0usize; durations.len()];
+    for &i in &sampled_indices {
+        sample_counts[i] += 1;
+    }
+    let last_sampled = *sampled_indices.last().unwrap();
 
-    // Second pass: process the sampled frames in parallel.
-    let processed: Vec<DynamicImage> = sampled_indices
-        .par_iter()
-        .map(|&i| {
-            let frame = &frame_vec[i];
-            let mut img = DynamicImage::ImageRgba8(frame.clone().into_buffer());
+    // Second pass: decode frames one at a time, keeping only the sampled ones.
+    let mut processed: Vec<DynamicImage> = Vec::with_capacity(sampled_indices.len());
+    // Bounds how many full-size frames are held in memory at once.
+    let batch_size = rayon::current_num_threads() * 2;
+    let mut batch: Vec<(RgbaImage, usize)> = Vec::with_capacity(batch_size);
+    let mut target_size: Option<(u32, u32)> = None;
+    for (i, frame) in get_frames(image_data, image_type)?.enumerate().take(last_sampled + 1) {
+        let count = sample_counts.get(i).copied().unwrap_or(0);
+        if count == 0 {
+            continue;
+        }
+        let buffer = frame
+            .map_err(|e| JsValue::from_str(&format!("Frame decode error: {}", e)))?
+            .into_buffer();
+        if target_size.is_none() {
+            let (width, height) = buffer.dimensions();
+            let scale_factor = (max_size as f64 / width as f64)
+                .min(max_size as f64 / height as f64)
+                .min(1.0);
+            target_size = Some((
+                (width as f64 * scale_factor).round() as u32,
+                (height as f64 * scale_factor).round() as u32,
+            ));
+        }
+        batch.push((buffer, count));
+        if batch.len() == batch_size {
+            resize_batch(&mut batch, target_size.unwrap(), grayscale_bits, &mut processed);
+        }
+    }
+    if let Some(size) = target_size {
+        resize_batch(&mut batch, size, grayscale_bits, &mut processed);
+    }
+    Ok((processed, effective_fps))
+}
+
+/// Resizes (and optionally grayscales) a batch of frames in parallel, appending each result
+/// to `processed` as many times as that frame was sampled. Empties the batch.
+fn resize_batch(
+    batch: &mut Vec<(RgbaImage, usize)>,
+    (new_width, new_height): (u32, u32),
+    grayscale_bits: u32,
+    processed: &mut Vec<DynamicImage>,
+) {
+    let resized: Vec<(DynamicImage, usize)> = batch
+        .par_drain(..)
+        .map(|(buffer, count)| {
+            let mut img = DynamicImage::ImageRgba8(buffer);
 
             // Convert to grayscale if requested.
             if grayscale_bits > 0 {
                 img = DynamicImage::ImageLuma8(img.to_luma8());
             }
-            img.resize(new_width, new_height, FilterType::Triangle)
+            (img.resize(new_width, new_height, FilterType::Triangle), count)
         })
         .collect();
-    Ok((processed, effective_fps))
+    for (img, count) in resized {
+        for _ in 1..count {
+            processed.push(img.clone());
+        }
+        processed.push(img);
+    }
 }
 
 /// Converts an RGB pixel to a single 24 bit integer (inside a u32, I know...).
