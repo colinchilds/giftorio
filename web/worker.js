@@ -9,7 +9,7 @@ async function run() {
   });
 
   addEventListener("message", async (message) => {
-    const { imageData, imageType, targetFps, maxSize, useDLC, substationQuality, grayscaleBits } = message.data;
+    const { imageData, imageType, targetFps, maxSize, useDLC, substationQuality, paletteSize, grayscale, splitFrames } = message.data;
 
     try {
       // Blueprints can be hundreds of MB, so collect them as Blob parts rather than one string.
@@ -21,7 +21,9 @@ async function run() {
         targetFps,
         maxSize,
         substationQuality,
-        grayscaleBits,
+        paletteSize,
+        grayscale,
+        splitFrames,
         (chunk) => parts.push(new Blob([chunk])),
       );
       postMessage({ blueprint: new Blob(parts, { type: "text/plain" }) });

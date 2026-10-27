@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 #[derive(Serialize)]
 pub struct Blueprint {
     pub blueprint: BlueprintInner,
@@ -20,13 +20,22 @@ pub struct Icon {
     pub index: u32,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+/// `type` and `quality` are left out when they're the game's defaults ("item" and "normal").
+#[derive(Serialize, Clone)]
 pub struct Signal {
-    #[serde(rename = "type")]
+    #[serde(rename = "type", skip_serializing_if = "is_default_type")]
     pub type_: Rc<String>,
     pub name: Rc<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "is_default_quality")]
     pub quality: Option<&'static str>,
+}
+
+fn is_default_type(type_: &Rc<String>) -> bool {
+    type_.as_str() == "item"
+}
+
+fn is_default_quality(quality: &Option<&'static str>) -> bool {
+    matches!(quality, None | Some("normal"))
 }
 
 pub type Wire = [u32; 4];
@@ -150,6 +159,7 @@ pub struct DeciderConditions {
 pub enum DeciderOutputs {
     List(Vec<CombinatorOutput>),
     /// `values[i]` is output on `signals[i]`. Stored as bare values to keep frame data small.
+    /// Zero values are left out, since a constant-0 output emits nothing.
     Pixels {
         signals: Rc<[Rc<Signal>]>,
         values: Vec<i32>,
@@ -169,7 +179,7 @@ impl Serialize for DeciderOutputs {
         match self {
             DeciderOutputs::List(outputs) => outputs.serialize(serializer),
             DeciderOutputs::Pixels { signals, values } => serializer.collect_seq(
-                values.iter().zip(signals.iter()).map(|(&constant, signal)| PixelOutput {
+                values.iter().zip(signals.iter()).filter(|(&constant, _)| constant != 0).map(|(&constant, signal)| PixelOutput {
                     copy_count_from_input: false,
                     constant,
                     signal,

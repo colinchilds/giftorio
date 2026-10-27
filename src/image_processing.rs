@@ -1,10 +1,11 @@
+use color_quant::NeuQuant;
 use image::AnimationDecoder;
-use image::{DynamicImage, Frames, RgbaImage};
+use image::{DynamicImage, Frames, GenericImageView, RgbaImage};
 use image::imageops::FilterType;
 use rayon::prelude::*;
 use std::io::Cursor;
 use wasm_bindgen::prelude::*;
-use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_SECOND};
+use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_SECOND, PALETTE_SAMPLE_FACTOR, PALETTE_SAMPLE_PIXELS};
 
 
 /// Creates a streaming frame decoder for the provided image data.
@@ -73,7 +74,7 @@ fn get_frame_delays(image_data: &[u8], image_type: &str) -> Result<Vec<u32>, JsV
 /// * `image_type` - Image type (e.g., "gif" or "webp").
 /// * `max_size` - Maximum width/height for downscaling.
 /// * `target_fps` - Desired frames per second (limited by the original FPS).
-/// * `grayscale_bits` - Number of bits for grayscale conversion (0 means full color).
+/// * `grayscale` - Whether to convert the frames to grayscale.
 ///
 /// # Returns
 ///
@@ -83,7 +84,7 @@ pub fn process_image(
     image_type: &str,
     max_size: u32,
     target_fps: u32,
-    grayscale_bits: u32,
+    grayscale: bool,
 ) -> Result<(Vec<DynamicImage>, u32), JsValue> {
     // First pass: gather frame durations.
     let durations: Vec<u32> = get_frame_delays(image_data, image_type)?
@@ -150,11 +151,11 @@ pub fn process_image(
         }
         batch.push((buffer, count));
         if batch.len() == batch_size {
-            resize_batch(&mut batch, target_size.unwrap(), grayscale_bits, &mut processed);
+            resize_batch(&mut batch, target_size.unwrap(), grayscale, &mut processed);
         }
     }
     if let Some(size) = target_size {
-        resize_batch(&mut batch, size, grayscale_bits, &mut processed);
+        resize_batch(&mut batch, size, grayscale, &mut processed);
     }
     Ok((processed, effective_fps))
 }
@@ -164,7 +165,7 @@ pub fn process_image(
 fn resize_batch(
     batch: &mut Vec<(RgbaImage, usize)>,
     (new_width, new_height): (u32, u32),
-    grayscale_bits: u32,
+    grayscale: bool,
     processed: &mut Vec<DynamicImage>,
 ) {
     let resized: Vec<(DynamicImage, usize)> = batch
@@ -173,7 +174,7 @@ fn resize_batch(
             let mut img = DynamicImage::ImageRgba8(buffer);
 
             // Convert to grayscale if requested.
-            if grayscale_bits > 0 {
+            if grayscale {
                 img = DynamicImage::ImageLuma8(img.to_luma8());
             }
             (img.resize(new_width, new_height, FilterType::Triangle), count)
@@ -200,4 +201,56 @@ fn resize_batch(
 /// An integer representing the RGB value.
 pub fn rgb_to_int(r: u8, g: u8, b: u8) -> u32 {
     ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+}
+
+/// Picks one palette of `size` colors for all frames. Index 0 is always black, since black
+/// pixels are left out of the blueprint entirely.
+///
+/// # Arguments
+///
+/// * `frames` - The processed frames.
+/// * `size` - Number of palette entries, including black.
+///
+/// # Returns
+///
+/// The palette colors as RGB triples.
+pub fn build_palette(frames: &[DynamicImage], size: usize) -> Vec<[u8; 3]> {
+    // Sample evenly spaced frames from across the whole animation, not just the first one.
+    let (width, height) = frames[0].dimensions();
+    let pixels_per_frame = (width * height) as usize;
+    let frame_step = (frames.len() * pixels_per_frame / PALETTE_SAMPLE_PIXELS).max(1);
+    let mut sample = Vec::with_capacity(PALETTE_SAMPLE_PIXELS.min(frames.len() * pixels_per_frame) * 4);
+    for frame in frames.iter().step_by(frame_step) {
+        sample.extend_from_slice(frame.to_rgba8().as_raw());
+    }
+
+    let quantizer = NeuQuant::new(PALETTE_SAMPLE_FACTOR, size, &sample);
+    let mut colors: Vec<[u8; 3]> = quantizer
+        .color_map_rgb()
+        .chunks_exact(3)
+        .map(|c| [c[0], c[1], c[2]])
+        .collect();
+    let darkest = (0..colors.len())
+        .min_by_key(|&i| colors[i].iter().map(|&c| c as u32).sum::<u32>())
+        .unwrap();
+    colors.swap(0, darkest);
+    colors[0] = [0, 0, 0];
+    colors
+}
+
+/// Finds the palette entry closest to a color.
+///
+/// # Arguments
+///
+/// * `palette` - The palette colors.
+/// * `color` - The RGB color to match.
+///
+/// # Returns
+///
+/// The index of the closest palette entry.
+pub fn nearest_palette_index(palette: &[[u8; 3]], color: &[u8]) -> u32 {
+    let distance = |entry: &[u8; 3]| -> i32 {
+        entry.iter().zip(color).map(|(&a, &b)| (a as i32 - b as i32).pow(2)).sum()
+    };
+    (0..palette.len()).min_by_key(|&i| distance(&palette[i])).unwrap() as u32
 }

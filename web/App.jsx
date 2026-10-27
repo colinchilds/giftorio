@@ -12,8 +12,11 @@ const INITIAL_VALUES = {
   useDLC: false,
   substationQualities: ['none', 'normal', 'uncommon', 'rare', 'epic', 'legendary'],
   substationQuality: 'normal',
-  grayscaleBits: 0,
+  paletteSize: 32,
+  grayscale: false,
+  splitFrames: true,
 };
+const PALETTE_SIZES = [0, 64, 32, 16, 4, 2];
 
 function App() {
   // State
@@ -119,7 +122,9 @@ function App() {
         maxSize: formData.maxSize,
         useDLC: formData.useDLC,
         substationQuality: formData.substationQuality,
-        grayscaleBits: formData.grayscaleBits,
+        paletteSize: formData.paletteSize,
+        grayscale: formData.grayscale,
+        splitFrames: formData.splitFrames,
       });
     } catch (err) {
       console.error('Failed to process file:', err);
@@ -370,30 +375,74 @@ function App() {
               />
             </div>
 
-            {/* Color Mode */}
+            {/* Palette Size */}
             <div class="mb-4">
-              <label class="block text-white-500 mb-2" for="grayscaleBits">
-                Color Mode
+              <label class="block text-white-500 mb-2" for="paletteSize">
+                Palette Size
                 <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
                 <span className="tooltip">
-                  Full color will try to match the original GIF colors. If the blueprint is too large, you can try using grayscale.
-                  8-bit grayscale has 256 shades of gray and can reduce the blueprint size by 60-70%, while 4-bit grayscale has 16 shades of gray
-                  and can reduce the blueprint size by up to 85%. Full black and white is roughly 32x smaller than full color.
+                  Number of colors shared by every frame. Fewer colors pack more frames into each signal, making the blueprint
+                  much smaller: 32 colors is usually around 2-6x smaller than full color and hard to tell apart from it.
+                  Full color matches the original GIF exactly, but uses the most combinators and the largest blueprint.
                 </span>
               </label>
               <select
-                  ref={el => formRefs.grayscaleBits = el}
-                  id="grayscaleBits"
-                  name="grayscaleBits"
+                  ref={el => formRefs.paletteSize = el}
+                  id="paletteSize"
+                  name="paletteSize"
                   class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
-                  value={formData.grayscaleBits}
-                  onChange={e => setFormData("grayscaleBits", parseInt(e.currentTarget.value))}
+                  value={formData.paletteSize}
+                  onChange={e => setFormData("paletteSize", parseInt(e.currentTarget.value))}
               >
-                <option value="0">Full Color</option>
-                <option value="8">8-bit Grayscale (256 shades)</option>
-                <option value="4">4-bit Grayscale (16 shades)</option>
-                <option value="1">1-bit (black & white only)</option>
+                {PALETTE_SIZES.map(size => (
+                  <option value={size}>
+                    {size === 0
+                      ? (formData.grayscale ? 'Full (256 shades)' : 'Full color')
+                      : `${size} ${formData.grayscale ? 'shades' : 'colors'}`}
+                  </option>
+                ))}
               </select>
+            </div>
+
+            {/* Grayscale toggle */}
+            <div class="mb-4 flex">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  class="sr-only"
+                  checked={formData.grayscale}
+                  onChange={e => setFormData("grayscale", e.currentTarget.checked)} />
+                <div class="checkbox"></div>
+                <div class="ml-4 text-white-500">
+                  Grayscale
+                  <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                  <span className="tooltip">
+                    Use evenly spaced shades of gray instead of colors picked from the GIF. Grayscale needs fewer combinators
+                    to decode. With 2 shades, the output is black and white.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Split frames toggle */}
+            <div class="mb-4 flex">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  class="sr-only"
+                  checked={formData.splitFrames}
+                  onChange={e => setFormData("splitFrames", e.currentTarget.checked)} />
+                <div class="checkbox"></div>
+                <div class="ml-4 text-white-500">
+                  Smaller blueprint
+                  <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                  <span className="tooltip">
+                    Splits each frame across several decider combinators so the blueprint string compresses far better,
+                    typically 25-55% smaller. The catch is roughly 3-4x as many combinators to build. Turn this off for
+                    the fewest combinators.
+                  </span>
+                </div>
+              </label>
             </div>
           </div>
         </div>

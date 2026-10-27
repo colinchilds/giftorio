@@ -19,7 +19,9 @@ mod models;
 /// - `target_fps`: Desired frames per second (won't exceed original FPS).
 /// - `max_size`: Maximum dimension (width/height) for downscaling.
 /// - `substation_quality`: Quality of substations to use.
-/// - `grayscale_bits`: Number of bits for grayscale conversion (0 means full color).
+/// - `palette_size`: Number of colors or gray levels (0 means full color, or 256 gray levels).
+/// - `grayscale`: Whether to use evenly spaced gray levels instead of an adaptive palette.
+/// - `split_frames`: Whether to split frames into more deciders for a much smaller blueprint string.
 /// - `on_chunk`: Called with each consecutive piece of the blueprint string, as a `Uint8Array`.
 #[wasm_bindgen]
 pub fn run_blueprint(
@@ -29,17 +31,19 @@ pub fn run_blueprint(
     target_fps: u32,
     max_size: u32,
     substation_quality: String,
-    grayscale_bits: u32,
+    palette_size: u32,
+    grayscale: bool,
+    split_frames: bool,
     on_chunk: &Function,
 ) -> Result<(), JsValue> {
     // Process the image to extract frames and determine the effective FPS.
-    let (frames, fps) = image_processing::process_image(image_data, image_type, max_size, target_fps, grayscale_bits)?;
+    let (frames, fps) = image_processing::process_image(image_data, image_type, max_size, target_fps, grayscale)?;
     if frames.is_empty() {
         return Err(JsValue::from_str("No frames sampled!"));
     }
 
     // Build the complete blueprint JSON.
-    let blueprint_json = blueprint::update_full_blueprint(fps, frames, use_dlc, grayscale_bits, substation_quality)?;
+    let blueprint_json = blueprint::update_full_blueprint(fps, frames, use_dlc, palette_size, grayscale, split_frames, substation_quality)?;
 
     // Encode the blueprint into a Factorio blueprint string.
     blueprint::encode_blueprint(&blueprint_json, ChunkWriter::new(on_chunk))?;
