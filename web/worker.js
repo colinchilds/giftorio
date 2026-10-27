@@ -12,7 +12,9 @@ async function run() {
     const { imageData, imageType, targetFps, maxSize, useDLC, substationQuality, grayscaleBits } = message.data;
 
     try {
-      const blueprint = run_blueprint(
+      // Blueprints can be hundreds of MB, so collect them as Blob parts rather than one string.
+      const parts = [];
+      run_blueprint(
         imageData,
         imageType,
         useDLC,
@@ -20,8 +22,9 @@ async function run() {
         maxSize,
         substationQuality,
         grayscaleBits,
+        (chunk) => parts.push(new Blob([chunk])),
       );
-      postMessage({ blueprint: blueprint });
+      postMessage({ blueprint: new Blob(parts, { type: "text/plain" }) });
     } catch (e) {
       console.error("Error generating blueprint:", e);
       postMessage({ error: e.toString() });

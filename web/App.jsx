@@ -4,6 +4,7 @@ import Background from './Background';
 import infoIcon from "./assets/img/info.png";
 
 // Constants
+const PREVIEW_LENGTH = 2000;
 const INITIAL_VALUES = {
   file: null,
   targetFps: 15,
@@ -19,7 +20,7 @@ function App() {
   const [formData, setFormData] = createStore({...INITIAL_VALUES});
   const [isGenerating, setIsGenerating] = createSignal(false);
   const [progress, setProgress] = createSignal({ percentage: 0, status: 'Starting...' });
-  const [blueprintData, setBlueprintData] = createSignal({ title: '', content: '' });
+  const [blueprintData, setBlueprintData] = createSignal({ title: '', content: null });
   const [toast, setToast] = createSignal({ show: false, message: '', isError: false });
   const [isDragging, setIsDragging] = createSignal(false);
   const [xOffset, setXOffset] = createSignal(0);
@@ -35,7 +36,7 @@ function App() {
   let formRefs = {};
 
   // Worker message handler
-  worker.onmessage = (event) => {
+  worker.onmessage = async (event) => {
     if (event.data.progress) {
       const { percentage, status } = event.data.progress;
       setProgress({ percentage, status });
@@ -44,9 +45,11 @@ function App() {
     } else if (event.data.blueprint) {
       const { blueprint } = event.data;
       setBlueprintData({ title: 'Generated Blueprint', content: blueprint });
+      // Only show the start of the blueprint; rendering the whole string can crash the tab.
+      const preview = await blueprint.slice(0, PREVIEW_LENGTH).text();
+      formRefs.responseText.textContent = blueprint.size > PREVIEW_LENGTH ? `${preview}…` : preview;
       formRefs.progressContainer.classList.add("hidden");
       formRefs.blueprintResult.classList.remove("hidden");
-      formRefs.responseText.innerHTML = blueprint;
       formRefs.submitButton.disabled = false;
     } else if (event.data.error) {
       setToast({ show: true, message: event.data.error, isError: true });
@@ -59,7 +62,12 @@ function App() {
   // Event handlers
   const toClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(formRefs.responseText.innerText);
+      const blueprint = blueprintData().content;
+      if (typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blueprint })]);
+      } else {
+        await navigator.clipboard.writeText(await blueprint.text());
+      }
       setToast({ show: true, message: 'Copied to clipboard!', isError: false });
       setTimeout(() => setToast({ show: false, message: '', isError: false }), 2000);
     } catch (err) {
@@ -76,7 +84,7 @@ function App() {
 
     // Reset UI state
     formRefs.blueprintStatus.classList.remove("hidden");
-    setBlueprintData({ title: 'Generating Blueprint...', content: '' });
+    setBlueprintData({ title: 'Generating Blueprint...', content: null });
     formRefs.progressContainer.classList.remove("hidden");
     formRefs.blueprintResult.classList.add("hidden");
     setProgress({ percentage: 0, status: 'Starting...' });
@@ -401,7 +409,9 @@ function App() {
             <p ref={el => formRefs.progressStatus = el} id="progressStatus" class="text-tan-500">Starting...</p>
           </div>
           <div ref={el => formRefs.blueprintResult = el} id="blueprintResult" classList={{hidden: !isGenerating()}}>
-            <h2 class="text-tan-500">Blueprint</h2>
+            <h2 class="text-tan-500">
+              Blueprint{blueprintData().content?.size > PREVIEW_LENGTH && ` (${(blueprintData().content.size / 2 ** 20).toFixed(1)} MB, preview only)`}
+            </h2>
             <div 
               ref={el => formRefs.responseText = el} 
               id="responseText" 

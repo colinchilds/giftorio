@@ -7,24 +7,27 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use image::GenericImageView;
 use std::collections::{HashMap, HashSet};
-use base64::write::EncoderStringWriter;
-use std::io::BufWriter;
+use base64::write::EncoderWriter;
+use std::io::{BufWriter, Write};
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
 
-/// Encodes the blueprint JSON as a Factorio blueprint string.
+/// Encodes the blueprint as a Factorio blueprint string, writing it to `out`.
 ///
 /// # Arguments
 ///
-/// * `blueprint` - The blueprint JSON object.
+/// * `blueprint` - The blueprint to encode.
+/// * `out` - Where the blueprint string is written.
 ///
 /// # Returns
 ///
-/// A Factorio blueprint string on success.
-pub fn encode_blueprint(blueprint: &Blueprint) -> Result<String, JsValue> {
+/// The writer, after everything has been written and flushed.
+pub fn encode_blueprint<W: Write>(blueprint: &Blueprint, mut out: W) -> Result<W, JsValue> {
     report_progress(80, "Encoding and compressing blueprint...");
     // Factorio blueprint strings are a version byte ('0') followed by the base64 data.
-    let base64_writer = EncoderStringWriter::from(String::from("0"), base64::STANDARD);
+    out.write_all(b"0")
+        .map_err(|e| JsValue::from_str(&format!("Output error: {}", e)))?;
+    let base64_writer = EncoderWriter::new(out, base64::STANDARD);
     let encoder = ZlibEncoder::new(base64_writer, Compression::best());
     // Without buffering, serde's many tiny writes make zlib extremely slow.
     let mut writer = BufWriter::with_capacity(64 * 1024, encoder);
@@ -34,12 +37,16 @@ pub fn encode_blueprint(blueprint: &Blueprint) -> Result<String, JsValue> {
     let encoder = writer
         .into_inner()
         .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
-    let base64_writer = encoder
+    let mut base64_writer = encoder
         .finish()
         .map_err(|e| JsValue::from_str(&format!("Compression finish error: {}", e)))?;
-    let blueprint_string = base64_writer.into_inner();
+    let mut out = base64_writer
+        .finish()
+        .map_err(|e| JsValue::from_str(&format!("Base64 finish error: {}", e)))?;
+    out.flush()
+        .map_err(|e| JsValue::from_str(&format!("Output error: {}", e)))?;
     report_progress(100, "Blueprint generation complete. Loading to browser...");
-    Ok(blueprint_string)
+    Ok(out)
 }
 
 /// Generates timer entities and wires for the blueprint's timing mechanism.
@@ -643,30 +650,37 @@ pub fn update_full_blueprint(
     let substation_occupied_y: HashSet<i32> = occupied_cells.iter().map(|(_, y)| *y).collect();
     let mut previous_top_right_lamp: Option<u32> = None;
 
-    for group_index in 0..num_groups {
+    let group_bounds = |group_index: u32| {
         let group_left = group_index * max_columns_per_group;
         let group_right = ((group_index + 1) * max_columns_per_group).min(full_width);
-        let group_width = group_right - group_left;
+        (group_left, group_right - group_left)
+    };
 
-        let group_frames_outputs = if use_grayscale {
-            sampled_frames
-                .chunks(frames_per_combinator as usize)
-                .map(|chunk| {
-                    let cropped_frames: Vec<image::DynamicImage> = chunk
-                        .iter()
-                        .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
-                        .collect();
-                    pack_grayscale_frames_to_outputs(&cropped_frames, &signals, grayscale_bits)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            let mut outputs = Vec::new();
-            for frame in &sampled_frames {
-                let cropped = frame.crop_imm(group_left, 0, group_width, full_height);
-                outputs.push(frame_to_outputs(&cropped, &signals)?);
-            }
-            outputs
-        };
+    // Consume the frames as they're converted so each full frame is freed once its outputs exist.
+    report_progress(20, "Converting frames");
+    let mut outputs_by_group: Vec<Vec<Vec<i32>>> = (0..num_groups).map(|_| Vec::new()).collect();
+    let mut frames = sampled_frames.into_iter();
+    loop {
+        let chunk: Vec<image::DynamicImage> = frames.by_ref().take(frames_per_combinator as usize).collect();
+        if chunk.is_empty() {
+            break;
+        }
+        for (group_index, group_outputs) in outputs_by_group.iter_mut().enumerate() {
+            let (group_left, group_width) = group_bounds(group_index as u32);
+            let cropped_frames: Vec<image::DynamicImage> = chunk
+                .iter()
+                .map(|frame| frame.crop_imm(group_left, 0, group_width, full_height))
+                .collect();
+            group_outputs.push(if use_grayscale {
+                pack_grayscale_frames_to_outputs(&cropped_frames, &signals, grayscale_bits)?
+            } else {
+                frame_to_outputs(&cropped_frames[0], &signals)?
+            });
+        }
+    }
+
+    for (group_index, group_frames_outputs) in (0..num_groups).zip(outputs_by_group) {
+        let (_, group_width) = group_bounds(group_index);
 
         let group_offset_x = group_index * max_columns_per_group;
         let first_connection_entity = if use_grayscale { next_entity } else { next_entity + 1 };

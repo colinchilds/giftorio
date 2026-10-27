@@ -1,3 +1,5 @@
+use js_sys::{Function, Uint8Array};
+use std::io::{self, Write};
 use wasm_bindgen::prelude::*;
 
 mod progress;
@@ -18,10 +20,7 @@ mod models;
 /// - `max_size`: Maximum dimension (width/height) for downscaling.
 /// - `substation_quality`: Quality of substations to use.
 /// - `grayscale_bits`: Number of bits for grayscale conversion (0 means full color).
-///
-/// # Returns
-///
-/// A Factorio blueprint string on success.
+/// - `on_chunk`: Called with each consecutive piece of the blueprint string, as a `Uint8Array`.
 #[wasm_bindgen]
 pub fn run_blueprint(
     image_data: &[u8],
@@ -31,7 +30,8 @@ pub fn run_blueprint(
     max_size: u32,
     substation_quality: String,
     grayscale_bits: u32,
-) -> Result<String, JsValue> {
+    on_chunk: &Function,
+) -> Result<(), JsValue> {
     // Process the image to extract frames and determine the effective FPS.
     let (frames, fps) = image_processing::process_image(image_data, image_type, max_size, target_fps, grayscale_bits)?;
     if frames.is_empty() {
@@ -42,6 +42,48 @@ pub fn run_blueprint(
     let blueprint_json = blueprint::update_full_blueprint(fps, frames, use_dlc, grayscale_bits, substation_quality)?;
 
     // Encode the blueprint into a Factorio blueprint string.
-    let blueprint_str = blueprint::encode_blueprint(&blueprint_json)?;
-    Ok(blueprint_str)
+    blueprint::encode_blueprint(&blueprint_json, ChunkWriter::new(on_chunk))?;
+    Ok(())
+}
+
+const CHUNK_SIZE: usize = 1 << 20;
+
+/// Hands output to JavaScript in fixed-size chunks so the full blueprint string,
+/// which can be hundreds of MB, never has to fit in wasm memory.
+struct ChunkWriter<'a> {
+    callback: &'a Function,
+    buffer: Vec<u8>,
+}
+
+impl<'a> ChunkWriter<'a> {
+    fn new(callback: &'a Function) -> Self {
+        ChunkWriter { callback, buffer: Vec::with_capacity(CHUNK_SIZE) }
+    }
+}
+
+impl Write for ChunkWriter<'_> {
+    // Always consumes all of `data`: base64's EncoderWriter reports a bogus zero-length
+    // write after a partial write, which zlib then treats as an error.
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        for piece in data.chunks(CHUNK_SIZE) {
+            let len = piece.len().min(CHUNK_SIZE - self.buffer.len());
+            self.buffer.extend_from_slice(&piece[..len]);
+            if self.buffer.len() == CHUNK_SIZE {
+                self.flush()?;
+                self.buffer.extend_from_slice(&piece[len..]);
+            }
+        }
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        self.callback
+            .call1(&JsValue::NULL, &Uint8Array::from(&self.buffer[..]))
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "chunk callback failed"))?;
+        self.buffer.clear();
+        Ok(())
+    }
 }
