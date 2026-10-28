@@ -28,7 +28,6 @@
     "ajv": "^8.20.0",
     "fflate": "^0.8.3",
     "mediabunny": "^1.62.1",
-    "modern-gif": "^2.1.0",
     "nodemon": "^3.1.14",
     "solid-js": "^1.9.3",
     "streamsaver": "^2.0.6"
