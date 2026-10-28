@@ -27,7 +27,6 @@ const observer = new PerformanceObserver((list) => {
   }
 });
 observer.observe({ type: "resource" });
-
 worker.addEventListener("message", async (evt) => {
   const { writerArgs } = evt.data;
   if (!writerArgs) return;
@@ -94,3 +93,15 @@ render(() => {
     </ErrorBoundary>
   );
 }, root!);
+
+// Cleanup on page exit
+window.addEventListener("pagehide", () => {
+  observer.disconnect();
+  worker.terminate();
+
+  const activeWriter = writer;
+  writer = null;
+  downloadUrl = null;
+
+  void activeWriter?.abort().catch((error) => console.warn("Failed to abort download during page exit:", error));
+});
