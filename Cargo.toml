@@ -1,7 +1,6 @@
 [package]
 name = "giftorio_wasm"
 description = "A Factorio blueprint generator for GIF (or WebP) images."
-authors = ["Colin R. King <colin.r.king@gmail.com>", "crkit"]
 version = "0.2.0"
 edition = "2024"
 repository = "https://github.com/colinchilds/giftorio"
