@@ -22,7 +22,9 @@ mod models;
 /// - `palette_size`: Number of colors or gray levels (0 means full color, or 256 gray levels).
 /// - `grayscale`: Whether to use evenly spaced gray levels instead of an adaptive palette.
 /// - `split_frames`: Whether to split frames into more deciders for a much smaller blueprint string.
-/// - `on_chunk`: Called with each consecutive piece of the blueprint string, as a `Uint8Array`.
+/// - `name`: Name for the blueprint's label, usually the GIF's file name.
+/// - `json`: Whether to output the uncompressed blueprint JSON instead of a blueprint string.
+/// - `on_chunk`: Called with each consecutive piece of the output, as a `Uint8Array`.
 #[wasm_bindgen]
 pub fn run_blueprint(
     image_data: &[u8],
@@ -34,6 +36,8 @@ pub fn run_blueprint(
     palette_size: u32,
     grayscale: bool,
     split_frames: bool,
+    name: &str,
+    json: bool,
     on_chunk: &Function,
 ) -> Result<(), JsValue> {
     // Process the image to extract frames and determine the effective FPS.
@@ -43,17 +47,17 @@ pub fn run_blueprint(
     }
 
     // Build the complete blueprint JSON.
-    let blueprint_json = blueprint::update_full_blueprint(fps, frames, use_dlc, palette_size, grayscale, split_frames, substation_quality)?;
+    let blueprint_json = blueprint::update_full_blueprint(name, fps, frames, use_dlc, palette_size, grayscale, split_frames, substation_quality)?;
 
-    // Encode the blueprint into a Factorio blueprint string.
-    blueprint::encode_blueprint(&blueprint_json, ChunkWriter::new(on_chunk))?;
+    // Encode the blueprint into a Factorio blueprint string, or write it out as JSON.
+    blueprint::encode_blueprint(&blueprint_json, json, ChunkWriter::new(on_chunk))?;
     Ok(())
 }
 
 const CHUNK_SIZE: usize = 1 << 20;
 
-/// Hands output to JavaScript in fixed-size chunks so the full blueprint string,
-/// which can be hundreds of MB, never has to fit in wasm memory.
+/// Hands output to JavaScript in fixed-size chunks so the full output, which can be
+/// hundreds of MB, never has to fit in wasm memory.
 struct ChunkWriter<'a> {
     callback: &'a Function,
     buffer: Vec<u8>,

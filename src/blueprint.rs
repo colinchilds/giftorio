@@ -14,17 +14,27 @@ use std::ops::Range;
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
 
-/// Encodes the blueprint as a Factorio blueprint string, writing it to `out`.
+/// Encodes the blueprint as a Factorio blueprint string or as plain JSON, writing it to `out`.
 ///
 /// # Arguments
 ///
 /// * `blueprint` - The blueprint to encode.
-/// * `out` - Where the blueprint string is written.
+/// * `json` - Whether to write the uncompressed JSON instead of a blueprint string.
+/// * `out` - Where the output is written.
 ///
 /// # Returns
 ///
 /// The writer, after everything has been written and flushed.
-pub fn encode_blueprint<W: Write>(blueprint: &Blueprint, mut out: W) -> Result<W, JsValue> {
+pub fn encode_blueprint<W: Write>(blueprint: &Blueprint, json: bool, mut out: W) -> Result<W, JsValue> {
+    if json {
+        report_progress(80, "Writing blueprint JSON...");
+        serde_json::to_writer(&mut out, blueprint)
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
+        out.flush()
+            .map_err(|e| JsValue::from_str(&format!("Output error: {}", e)))?;
+        report_progress(100, "Blueprint generation complete. Loading to browser...");
+        return Ok(out);
+    }
     report_progress(80, "Encoding and compressing blueprint...");
     // Factorio blueprint strings are a version byte ('0') followed by the base64 data.
     out.write_all(b"0")
@@ -418,6 +428,16 @@ impl ColorMode {
         }
     }
 
+    /// Short description of the colors, for the blueprint description.
+    fn describe(&self) -> String {
+        match self {
+            ColorMode::FullColor => "Full color".to_string(),
+            ColorMode::Grayscale { bits: 1, .. } => "Black and white".to_string(),
+            ColorMode::Grayscale { bits, .. } => format!("{} shades of gray", 1 << bits),
+            ColorMode::Palette { colors, .. } => format!("{} colors", colors.len()),
+        }
+    }
+
     /// Converts a frame to one value per pixel: packed RGB, a gray level, or a palette index.
     fn pixel_values(&self, frame: &DynamicImage) -> Vec<u32> {
         self.frame_bytes(frame)
@@ -526,6 +546,17 @@ fn virtual_signal(name: &str) -> Signal {
 /// Rounds `numerator / denominator` to the nearest integer.
 fn round_div(numerator: u32, denominator: u32) -> u32 {
     ((2 * numerator as u64 + denominator as u64) / (2 * denominator as u64)) as u32
+}
+
+/// Formats a number of ticks as seconds under a minute ("8.5s"), or minutes and seconds ("2:05").
+fn format_ticks(ticks: u32) -> String {
+    let seconds = ticks as f64 / TICKS_PER_SECOND as f64;
+    if seconds < 60.0 {
+        format!("{:.1}s", seconds)
+    } else {
+        let whole = seconds.round() as u32;
+        format!("{}:{:02}", whole / 60, whole % 60)
+    }
 }
 
 /// A decider outputting one chunk of a group's pixels for blocks `start_block..end_block`.
@@ -900,11 +931,13 @@ pub fn generate_lamps(
 /// * `split_frames` - Whether to split each frame into deciders of at most `MAX_SIGNALS_PER_DECIDER`
 ///   pixels. That makes the blueprint string much smaller, but takes several times more deciders.
 /// * `substation_quality` - Quality level for substations.
+/// * `name` - Name for the blueprint's label, usually the GIF's file name.
 ///
 /// # Returns
 ///
 /// The final blueprint as a JSON value.
 pub fn update_full_blueprint(
+    name: &str,
     fps: u32,
     sampled_frames: Vec<DynamicImage>,
     use_dlc: bool,
@@ -1101,8 +1134,26 @@ pub fn update_full_blueprint(
         );
     }
 
+    let combinators = all_entities
+        .iter()
+        .filter(|e| matches!(e.name, DECIDER_COMBINATOR | ARITHMETIC_COMBINATOR | CONSTANT_COMBINATOR))
+        .count();
+    let name = if name.is_empty() { "GIFtorio" } else { name };
+    let description = format!(
+        "{}x{} lamps, {} frames at {} FPS ({} loop)\n{}, {} combinators\nMade with GIFtorio: https://giftor.io",
+        full_width,
+        full_height,
+        total_frames,
+        fps,
+        format_ticks(stop),
+        mode.describe(),
+        combinators,
+    );
+
     let blueprint = Blueprint {
         blueprint: BlueprintInner {
+            label: format!("{} ({}x{})", name, full_width, full_height),
+            description,
             icons: vec![Icon {
                 signal: virtual_signal(DECIDER_COMBINATOR),
                 index: 1,

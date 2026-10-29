@@ -15,15 +15,33 @@ const INITIAL_VALUES = {
   paletteSize: 32,
   grayscale: false,
   splitFrames: true,
+  outputFormat: 'blueprint',
 };
 const PALETTE_SIZES = [0, 64, 32, 16, 4, 2];
+const OUTPUT_FORMATS = ['blueprint', 'json'];
+const SETTINGS_KEY = 'giftorio-settings';
+const SAVED_SETTINGS = ['targetFps', 'maxSize', 'useDLC', 'substationQuality', 'paletteSize', 'grayscale', 'splitFrames', 'outputFormat'];
+
+// Settings from the last visit. Storage can be unavailable (private windows, blocked site data),
+// and options can change between versions, so anything unexpected falls back to the defaults.
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)) ?? {};
+    const settings = Object.fromEntries(SAVED_SETTINGS.filter(key => key in saved).map(key => [key, saved[key]]));
+    if (!PALETTE_SIZES.includes(settings.paletteSize)) delete settings.paletteSize;
+    if (!OUTPUT_FORMATS.includes(settings.outputFormat)) delete settings.outputFormat;
+    return settings;
+  } catch {
+    return {};
+  }
+}
 
 function App() {
   // State
-  const [formData, setFormData] = createStore({...INITIAL_VALUES});
+  const [formData, setFormData] = createStore({...INITIAL_VALUES, ...loadSettings()});
   const [isGenerating, setIsGenerating] = createSignal(false);
   const [progress, setProgress] = createSignal({ percentage: 0, status: 'Starting...' });
-  const [blueprintData, setBlueprintData] = createSignal({ title: '', content: null });
+  const [blueprintData, setBlueprintData] = createSignal({ title: '', content: null, fileName: '' });
   const [toast, setToast] = createSignal({ show: false, message: '', isError: false });
   const [isDragging, setIsDragging] = createSignal(false);
   const [xOffset, setXOffset] = createSignal(0);
@@ -47,7 +65,7 @@ function App() {
       formRefs.progressStatus.textContent = status;
     } else if (event.data.blueprint) {
       const { blueprint } = event.data;
-      setBlueprintData({ title: 'Generated Blueprint', content: blueprint });
+      setBlueprintData(data => ({ ...data, title: 'Generated Blueprint', content: blueprint }));
       // Only show the start of the blueprint; rendering the whole string can crash the tab.
       const preview = await blueprint.slice(0, PREVIEW_LENGTH).text();
       formRefs.responseText.textContent = blueprint.size > PREVIEW_LENGTH ? `${preview}…` : preview;
@@ -78,6 +96,18 @@ function App() {
       setToast({ show: true, message: 'Failed to copy to clipboard', isError: true });
       setTimeout(() => setToast({ show: false, message: '', isError: false }), 2000);
     }
+  };
+
+  const download = () => {
+    const { content, fileName } = blueprintData();
+    const type = fileName.endsWith('.json') ? 'application/json' : 'text/plain';
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    // Revoking straight away can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const handleSubmit = async (event) => {
@@ -115,6 +145,9 @@ function App() {
     try {
       const imageType = formData.file.type.substring(6 /* image/ */)
       const imageData = new Uint8Array(await formData.file.arrayBuffer());
+      const name = formData.file.name.replace(/\.[^.]+$/, '');
+      const extension = formData.outputFormat === 'json' ? 'json' : 'txt';
+      setBlueprintData(data => ({ ...data, fileName: `${name || 'blueprint'}.${extension}` }));
       worker.postMessage({
         imageData,
         imageType,
@@ -125,6 +158,8 @@ function App() {
         paletteSize: formData.paletteSize,
         grayscale: formData.grayscale,
         splitFrames: formData.splitFrames,
+        name,
+        outputFormat: formData.outputFormat,
       });
     } catch (err) {
       console.error('Failed to process file:', err);
@@ -160,6 +195,15 @@ function App() {
       form.style.position = 'absolute';
       form.style.left = `${e.clientX - xOffset()}px`;
       form.style.top = `${e.clientY - yOffset()}px`;
+    }
+  });
+
+  createEffect(() => {
+    const settings = Object.fromEntries(SAVED_SETTINGS.map(key => [key, formData[key]]));
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Settings just won't be remembered.
     }
   });
 
@@ -444,6 +488,30 @@ function App() {
                 </div>
               </label>
             </div>
+
+            {/* Output Format */}
+            <div class="mb-4">
+              <label class="block text-white-500 mb-2" for="outputFormat">
+                Output Format
+                <img src={infoIcon} className="inline-block ml-1 mb-0.5 w-4 h-4 tooltip-trigger" alt="Info"/>
+                <span className="tooltip">
+                  A blueprint string can be pasted into Factorio's Import String dialog. JSON is the same blueprint
+                  uncompressed, saved as a file you drag into the game (Factorio 2.0.25 or later). Try JSON if a very
+                  large blueprint string fails to import.
+                </span>
+              </label>
+              <select
+                  ref={el => formRefs.outputFormat = el}
+                  id="outputFormat"
+                  name="outputFormat"
+                  class="bg-gray-100 w-full px-3 py-2 border rounded focus:outline-none focus:ring"
+                  value={formData.outputFormat}
+                  onChange={e => setFormData("outputFormat", e.currentTarget.value)}
+              >
+                <option value="blueprint">Blueprint string</option>
+                <option value="json">JSON file</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -470,9 +538,14 @@ function App() {
               <button onClick={() => setIsGenerating(false)} id="backButton" class="button">
                 Back
               </button>
-              <button onClick={toClipboard} id="copyButton" class="button button-green">
-                Copy
-              </button>
+              <div class="flex gap-4">
+                <button onClick={download} id="downloadButton" class="button">
+                  Download
+                </button>
+                <button onClick={toClipboard} id="copyButton" class="button button-green">
+                  Copy
+                </button>
+              </div>
             </div>
             <div class="mt-6 text-center text-white-500">
               <p>Liking GIFtorio? Consider <a 

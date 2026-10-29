@@ -7,6 +7,8 @@ pub struct Blueprint {
 
 #[derive(Serialize)]
 pub struct BlueprintInner {
+    pub label: String,
+    pub description: String,
     pub icons: Vec<Icon>,
     pub entities: Vec<Entity>,
     pub wires: Vec<Wire>,

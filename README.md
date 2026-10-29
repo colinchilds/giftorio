@@ -12,6 +12,9 @@
 - Configurable substation quality to reduce dead pixels
 - Attempts to maintain animation timing similar to the original GIF
 - Supports different substation qualities when using the Space Age DLC
+- Copy or download the result as a blueprint string, or as a JSON file for blueprints too large to import as a string
+- Labels each blueprint with the GIF's name and size, and describes its frames, colors and combinator count
+- Remembers your settings between visits
 
 ## Prerequisites
 
