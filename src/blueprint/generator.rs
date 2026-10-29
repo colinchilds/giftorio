@@ -39,6 +39,7 @@ pub struct BlueprintGenerator<'a> {
     should_generate_cbs: bool,
     /// List of unique signals to use for the blueprint.
     signals: Box<[Arc<SignalID>]>,
+    signals_str: Arc<[serde_json::Value]>,
     state: BlueprintState,
 }
 
@@ -82,7 +83,7 @@ impl<'a> BlueprintGenerator<'a> {
         data: Option<FrameData<'a>>,
         args: &'a BlueprintArgs,
     ) -> Result<Self, JsValue> {
-        let signals = Self::get_signal_data(args);
+        let (signals, signals_str) = Self::get_signal_data(args);
         let gray_bits = args.grayscale_bits;
         let comb_comp = args.signal_compression;
         let time_comp_win = match comb_comp {
@@ -161,6 +162,7 @@ impl<'a> BlueprintGenerator<'a> {
                 Mode::Static { combs: false, .. } | Mode::Lamps | Mode::LampGrid
             ),
             signals,
+            signals_str,
             state: BlueprintState::Start,
         })
     }
@@ -200,7 +202,7 @@ impl<'a> BlueprintGenerator<'a> {
         });
     }
 
-    fn get_signal_data(args: &BlueprintArgs) -> Box<[Arc<SignalID>]> {
+    fn get_signal_data(args: &BlueprintArgs) -> (Box<[Arc<SignalID>]>, Arc<[serde_json::Value]>) {
         let mut signals = PROTOTYPE_DATA.with_borrow(|v| {
             let signals = &v.as_ref().expect("No signal data loaded yet!").signals;
             if matches!(
@@ -235,14 +237,18 @@ impl<'a> BlueprintGenerator<'a> {
             }),
             _ => {}
         };
-        signals
+        let signals_str = (signals.iter())
+            .map(|s| serde_json::to_value(s).unwrap())
+            .collect::<Arc<_>>();
+        (signals, signals_str)
     }
 
     pub fn done(&mut self) -> bool {
         self.state == BlueprintState::Finished
     }
 
-    pub async fn next_chunk(&mut self, writer: &mut dyn io::Write) -> Result<bool, JsValue> {
+    /// Generates the next chunk of the blueprint and writes it to the given writer.
+    pub async fn next_chunk(&mut self, writer: &mut impl io::Write) -> Result<bool, JsValue> {
         let old_state = self.state.clone();
         match old_state {
             BlueprintState::Start => {
@@ -393,7 +399,7 @@ impl<'a> BlueprintGenerator<'a> {
         output.join("")
     }
 
-    async fn place_entities(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    async fn place_entities(&mut self, writer: &mut impl io::Write) -> Result<(), JsValue> {
         let args = self.args;
         let info = &mut self.frame_info;
         let signals = &mut self.signals;
@@ -530,12 +536,12 @@ impl<'a> BlueprintGenerator<'a> {
         Ok(())
     }
 
-    async fn populate_data(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    async fn populate_data(&mut self, writer: &mut impl io::Write) -> Result<(), JsValue> {
         let info = self.frame_info.as_mut().unwrap();
 
         let group_data_combs = &mut info.group_data_combs;
         let frame_data = &mut info.frame_data;
-        let signals = &mut self.signals;
+        let signals = &self.signals;
 
         let frames_per_cb = info.frames_per_cb;
         let gray_bits = self.args.grayscale_bits;
@@ -547,41 +553,46 @@ impl<'a> BlueprintGenerator<'a> {
         let ticks_per_grp = ticks_per_frame * frames_per_cb;
         let mode = self.args.mode;
         let sig_p = self.args.timing_signals.p.clone();
+        let mut output_data: Vec<BlueprintEntity> = Vec::new();
 
-        let mk_cb = |start: u32, end: u32, outputs: Vec<DeciderCombinatorOutput>| {
+        let mk_cb = |start: u32, end: u32, indices: Box<[(usize, i32)]>| -> ControlBehavior {
             if matches!(mode, Mode::Static { const_cb: true, .. }) {
-                let mut sections: Vec<LogisticSection> = Vec::new();
-                for (i, f) in outputs.chunks(1000).enumerate() {
-                    let filters = f.iter().enumerate().map(|(j, o)| BlueprintLogisticFilter {
+                let sections = indices.chunks(1000).enumerate().map(|(i, v)| {
+                    let sig = &signals[i];
+                    let filters = v.iter().map(|&(j, v)| BlueprintLogisticFilter {
                         index: j as u16 + 1,
-                        type_: Arc::clone(&o.signal.type_),
-                        name: Arc::clone(&o.signal.name),
-                        quality: o.signal.quality.clone(),
+                        type_: Arc::clone(&sig.type_),
+                        name: Arc::clone(&sig.name),
+                        quality: sig.quality.clone(),
                         comparator: Some(ComparatorString::Eq),
-                        count: o.constant,
+                        count: v,
                     });
-                    let filters = filters.collect::<Vec<_>>();
-                    let index = i as u8 + 1;
-
-                    sections.push(LogisticSection { index, filters });
-                }
+                    LogisticSection {
+                        index: i as u8 + 1,
+                        filters: filters.collect::<Vec<_>>(),
+                    }
+                });
+                let sections = sections.collect::<Vec<_>>();
                 let sections = LogisticSections { sections };
                 ControlBehavior::ConstantCombinator { sections }
             } else {
-                ControlBehavior::decider(DeciderCombinatorParameters {
-                    conditions: vec![
-                        DeciderCombinatorCondition::new(sig_p.clone(), start as i32, CompStr::Ge),
-                        DeciderCombinatorCondition::new(sig_p.clone(), end as i32, CompStr::Lt)
-                            .with_compare_type(CompareTypeString::And),
-                    ],
-                    outputs,
-                })
+                let conditions = vec![
+                    DeciderCombinatorCondition::new(Arc::clone(&sig_p), start as i32, CompStr::Ge),
+                    DeciderCombinatorCondition::new(Arc::clone(&sig_p), end as i32, CompStr::Lt)
+                        .with_compare_type(CompareTypeString::And),
+                ];
+                let decider_conditions = DeciderCombinatorCustomParameters {
+                    conditions,
+                    indices,
+                    signal_list: Arc::clone(&self.signals_str),
+                };
+                ControlBehavior::DeciderCombinatorCustom { decider_conditions }
             }
         };
-        let mut output_ents: Vec<BlueprintEntity> = Vec::with_capacity(ENCODE_CHUNK_SIZE);
 
         loop {
             info.next_frame = frame_data.next().await?;
+
             let frame = &info.curr_frame;
             let is_last_frame = info.next_frame.is_none();
 
@@ -634,33 +645,30 @@ impl<'a> BlueprintGenerator<'a> {
                 }
 
                 if use_delta_comp {
-                    // Delta compression branch
                     let prev_outputs = &state.sig_buf[0];
-                    let mut target_outputs = Vec::with_capacity(target_outputs_len);
-
-                    for i in 0..target_outputs_len {
-                        let v = frame_sigs[i].wrapping_sub(prev_outputs[i]); // Uses overflow to reach any target value.
-                        if v != 0 {
-                            let signal = Arc::clone(&signals[i]);
-                            target_outputs.push(DeciderCombinatorOutput::new(signal, Some(v)));
-                        }
-                    }
-                    if !target_outputs.is_empty() {
+                    if let target_outputs = (frame_sigs.iter().enumerate())
+                        .filter_map(|(i, &v)| {
+                            (v != 0).then_some((i, v.wrapping_sub(prev_outputs[i])))
+                        })
+                        .collect::<Box<_>>()
+                        && !target_outputs.is_empty()
+                    {
                         let en = &data_combs[state.comb_i];
                         let range = uvec2(1, 2) + (ticks_per_grp * state.chunk_i);
                         let cb = mk_cb(range.x, range.y, target_outputs);
-                        output_ents.push(en.clone().with_control_behavior(cb));
+                        output_data.push(en.clone().with_control_behavior(cb));
                         state.sig_buf[0] = frame_sigs; // cache absolute output
                         state.comb_i += 1;
                     }
                 } else {
                     // Temporal compression branch
-                    let mut changed_mask: Vec<bool> = vec![false; target_outputs_len]; // to find what changed
+                    let mut changed_mask: Vec<bool>; // to find what changed
                     let outputs_0 = &state.sig_buf[0];
                     let base_chunk_i = state.chunk_i * n_buf_frames;
 
                     // If we cached more than 1 frame, we can apply temporal compression
                     if state.sig_buf.len() > 1 {
+                        changed_mask = vec![false; target_outputs_len];
                         for comb_outputs in state.sig_buf.iter().skip(1) {
                             for i in 0..target_outputs_len {
                                 if !changed_mask[i] && (comb_outputs[i] != outputs_0[i]) {
@@ -669,48 +677,38 @@ impl<'a> BlueprintGenerator<'a> {
                             }
                         }
                     } else {
-                        changed_mask.fill(true);
+                        changed_mask = vec![true; target_outputs_len];
                     }
 
                     // Handle changed pixels
                     for (cb_i, cb_outputs) in state.sig_buf.iter().enumerate() {
-                        let target_i = base_chunk_i + cb_i as u32;
-                        let mut target_outputs = Vec::with_capacity(signals.len());
+                        let target_outputs = (cb_outputs.iter().enumerate())
+                            .filter_map(|(i, &v)| changed_mask[i].then_some((i, v)))
+                            .collect::<Box<_>>();
 
-                        // Accumulate only the changed outputs
-                        for (i, &v) in cb_outputs.iter().enumerate() {
-                            if changed_mask[i] && v != 0 {
-                                let signal = Arc::clone(&signals[i]);
-                                target_outputs.push(DeciderCombinatorOutput::new(signal, Some(v)));
-                            }
-                        }
                         if !target_outputs.is_empty() {
+                            let target_i = base_chunk_i + cb_i as u32;
                             let en = &data_combs[state.comb_i];
                             let range = (uvec2(0, 1) + target_i) * ticks_per_grp;
                             let cb = mk_cb(range.x, range.y, target_outputs);
-                            output_ents.push(en.clone().with_control_behavior(cb));
+                            output_data.push(en.clone().with_control_behavior(cb));
                             state.comb_i += 1;
                         }
                     }
 
                     // Handle unchanged pixels
-                    if state.sig_buf.len() > 1 {
-                        let mut target_outputs = Vec::with_capacity(signals.len());
-                        for i in 0..target_outputs_len {
-                            if !changed_mask[i] && outputs_0[i] != 0 {
-                                let sig = Arc::clone(&signals[i]);
-                                target_outputs
-                                    .push(DeciderCombinatorOutput::new(sig, Some(outputs_0[i])));
-                            }
-                        }
-                        if !target_outputs.is_empty() {
-                            let e = &data_combs[state.comb_i];
-                            let range = ticks_per_grp
-                                * uvec2(base_chunk_i, base_chunk_i + state.sig_buf.len() as u32);
-                            let cb = mk_cb(range.x, range.y, target_outputs);
-                            output_ents.push(e.clone().with_control_behavior(cb));
-                            state.comb_i += 1;
-                        }
+                    if state.sig_buf.len() > 1
+                        && let target_outputs = (changed_mask.iter().enumerate())
+                            .filter_map(|(i, &changed)| (!changed).then_some((i, outputs_0[i])))
+                            .collect::<Box<_>>()
+                        && !target_outputs.is_empty()
+                    {
+                        let en = &data_combs[state.comb_i];
+                        let range = ticks_per_grp
+                            * uvec2(base_chunk_i, base_chunk_i + state.sig_buf.len() as u32);
+                        let cb = mk_cb(range.x, range.y, target_outputs);
+                        output_data.push(en.clone().with_control_behavior(cb));
+                        state.comb_i += 1;
                     }
                     state.sig_buf.clear();
                 }
@@ -724,24 +722,24 @@ impl<'a> BlueprintGenerator<'a> {
                 self.state = BlueprintState::Wires;
                 break;
             }
-            if output_ents.len() >= ENCODE_CHUNK_SIZE {
+            if output_data.len() >= ENCODE_CHUNK_SIZE {
                 break;
             }
         }
 
-        if !output_ents.is_empty() {
-            for en in output_ents.iter_mut() {
+        if !output_data.is_empty() {
+            for en in output_data.iter_mut() {
                 self.occupied.request(en.position); // Request powerage for generated combinators
                 Self::transform_entity(self.args, en);
             }
             write_to(writer, b",")?;
-            write_json_trimmed_to(writer, &output_ents)?; // Remove braces
+            write_json_trimmed_to(writer, &output_data)?; // Remove braces
         }
 
         Ok(())
     }
 
-    async fn make_wires(&mut self, writer: &mut dyn io::Write) -> Result<(), JsValue> {
+    async fn make_wires(&mut self, writer: &mut impl io::Write) -> Result<(), JsValue> {
         let all_ents = &mut self.entity_data.ents;
         let all_wires = &mut self.entity_data.wires;
         let n_wires = all_wires.len();

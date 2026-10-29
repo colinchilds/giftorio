@@ -42,7 +42,6 @@ worker.addEventListener("message", async (evt) => {
     worker.postMessage({ type: "writerReady" });
   } else if (writerArgs.chunk) {
     const { id, data } = writerArgs.chunk;
-
     try {
       await writer!.write(data); // Safe to await now
       worker.postMessage({ type: "chunkWritten", id });

@@ -1,12 +1,12 @@
 use std::io::{self, Write};
 use wasm_bindgen::prelude::*;
 
+/// Custom writer that buffers data and calls a callback when the buffer reaches a certain threshold.
 pub struct StreamingWriter<F: FnMut(Vec<u8>) -> Result<(), JsValue>> {
     buffer: Vec<u8>,
     threshold: usize,
     on_chunk: F,
 }
-
 impl<F: FnMut(Vec<u8>) -> Result<(), JsValue>> StreamingWriter<F> {
     pub fn new(threshold: usize, on_chunk: F) -> Self {
         Self {
@@ -18,11 +18,11 @@ impl<F: FnMut(Vec<u8>) -> Result<(), JsValue>> StreamingWriter<F> {
 
     #[inline(always)]
     fn call_on_chunk(&mut self, chunk: Vec<u8>) -> io::Result<()> {
-        let result = (self.on_chunk)(chunk);
-        result.map_err(|e| io::Error::other(e.as_string().unwrap_or_else(|| format!("{e:?}"))))
+        (self.on_chunk)(chunk)
+            .map_err(|e| io::Error::other(e.as_string().unwrap_or_else(|| format!("{e:?}"))))
     }
 
-    fn emit_chunks(&mut self) -> io::Result<()> {
+    fn emit(&mut self) -> io::Result<()> {
         while self.buffer.len() >= self.threshold {
             let remainder = self.buffer.split_off(self.threshold);
             let chunk = std::mem::replace(&mut self.buffer, remainder);
@@ -43,12 +43,11 @@ impl<F: FnMut(Vec<u8>) -> Result<(), JsValue>> StreamingWriter<F> {
 impl<F: FnMut(Vec<u8>) -> Result<(), JsValue>> Write for StreamingWriter<F> {
     fn write(&mut self, data: &[u8]) -> io::Result<usize> {
         self.buffer.extend_from_slice(data);
-        self.emit_chunks()?;
+        self.emit()?;
         Ok(data.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.emit_chunks()?;
-        Ok(())
+        self.emit()
     }
 }

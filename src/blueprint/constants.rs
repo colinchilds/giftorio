@@ -29,6 +29,7 @@ lazy_arc_const!(pub CONSTANT_COMB      : str      = "constant-combinator"       
 lazy_arc_const!(pub DEC_CB             : str      = "decider-combinator"                           );
 lazy_arc_const!(pub DEFAULT_QUAL_KEY   : str      = "<default>"                                    );
 lazy_arc_const!(pub DEFAULT_SIGNAL_TYPE: str      = "item"                                         );
+lazy_arc_const!(pub DEFAULT_QUALITY    : str      = "normal"                                       );
 lazy_arc_const!(pub LAMP               : str      = "small-lamp"                                   );
 lazy_arc_const!(pub SIG_EACH           : SignalID = SignalID::new_virtual(Arc::from("signal-each")));
 lazy_arc_const!(pub SIG_TYPE_VIRTUAL   : str      = "virtual"                                      );

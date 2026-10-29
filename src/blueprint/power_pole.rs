@@ -58,7 +58,7 @@ impl PowerPoleOccupied {
         args: &BlueprintArgs,
     ) -> (Vec<BlueprintEntity>, Vec<Wire>, u32) {
         let mut poles: Vec<BlueprintEntity> = Vec::new();
-        let mut wires: Vec<[u32; 4]> = Vec::new();
+        let mut wires: Vec<Wire> = Vec::new();
         let mut curr_ent_n = base_ent_n;
         let cov = self.coverage;
 

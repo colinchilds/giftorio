@@ -3,11 +3,11 @@ use crate::util::ResultJsExt;
 use std::io;
 use wasm_bindgen::*;
 
-pub fn write_to(writer: &mut dyn io::Write, buf: &[u8]) -> Result<(), JsValue> {
+pub fn write_to(writer: &mut impl io::Write, buf: &[u8]) -> Result<(), JsValue> {
     writer.write_all(buf).map_js_err("Write error")
 }
 pub fn write_json_trimmed_to<T: ?Sized + serde::Serialize>(
-    writer: &mut dyn io::Write,
+    writer: &mut impl io::Write,
     value: &T,
 ) -> Result<(), JsValue> {
     let json_bytes = serde_json::to_vec(value).map_js_err("Write error")?;

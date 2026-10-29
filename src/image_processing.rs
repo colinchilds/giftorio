@@ -415,7 +415,7 @@ pub async fn encode_gif(
     let promise_q = Rc::clone(&promises);
 
     // Custom writer that invokes a callback whenever chunk size is reached.
-    let mut writer = StreamingWriter::new(128 * 1024, |chunk| {
+    let mut writer = StreamingWriter::new(1024 * 1024, |chunk| {
         let data = js::Uint8Array::from(&chunk[..]);
         let promise = on_chunk.call(&JsValue::NULL, (&data,))?;
         promise_q.borrow_mut().push(promise);

@@ -124,13 +124,9 @@ pub async fn run_blueprint(
     }
 
     // Custom writer that invokes a callback whenever chunk size is reached.
-    let writer = StreamingWriter::new(128 * 1024, |chunk| {
+    let writer = StreamingWriter::new(1024 * 1024, |chunk| {
         let data = js::Uint8Array::from(chunk.as_slice());
-        let promise = on_chunk.call(&JsValue::NULL, (&data,))?;
-        if let Some(q) = promise_q.borrow_mut().back_mut() {
-            q.push(promise)
-        }
-
+        (promise_q.borrow_mut().back_mut().unwrap()).push(on_chunk.call(&JsValue::NULL, (&data,))?);
         Ok(())
     });
 
@@ -139,11 +135,7 @@ pub async fn run_blueprint(
     let mut encoder = BlueprintEncoder::new(generator, &args, writer)?;
 
     let flush = async || -> Result<(), JsValue> {
-        // Get the earliest list of promises from the queue
-        if let Some(mut q) = {
-            let mut promises = promises.borrow_mut();
-            std::mem::take(&mut *promises).pop_front()
-        } {
+        if let Some(mut q) = { std::mem::take(&mut *promises.borrow_mut()).pop_front() } {
             for promise in q.drain(..) {
                 JsFuture::from(promise).await?;
             }

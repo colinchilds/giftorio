@@ -644,8 +644,10 @@ export default function App({ ref, streamingAvailable, worker }: AppProps) {
                   />
                 </div>
               </div>
-              <Show when={animationInfo()} fallback={"Loading..."}>
-                <AnimationInfoDisplay {...animationInfo()!} file={currFile()} />
+              <Show when={currFile()} fallback={<div class="text-gray-300">Please select a file.</div>}>
+                <Show when={animationInfo()} fallback={"Loading..."}>
+                  <AnimationInfoDisplay {...animationInfo()!} file={currFile()} />
+                </Show>
               </Show>
 
               {/* Max Size Input */}

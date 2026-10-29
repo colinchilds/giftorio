@@ -4,7 +4,11 @@ use crate::blueprint::{constants::*, dvec2_xy};
 pub use crate::models::*;
 use crate::util::{is_default, is_none_or_default};
 use glam::DVec2;
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Serialize, Serializer,
+    ser::{SerializeSeq, SerializeStruct},
+};
+use serde_json::value::Value;
 use std::sync::Arc;
 
 pub struct ObjectGeneratorOutput {
@@ -243,12 +247,6 @@ pub struct BlueprintLogisticFilter {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct LogisticSections {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sections: Vec<LogisticSection>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
 pub struct Color {
     #[serde(default, skip_serializing_if = "is_default")]
     pub r: f64,
@@ -355,6 +353,11 @@ pub enum ControlBehavior {
 
         /// Defaults to defines.control_behavior.lamp.color_mapping.
         color_mode: i8,
+    },
+
+    #[serde(skip_deserializing)]
+    DeciderCombinatorCustom {
+        decider_conditions: DeciderCombinatorCustomParameters,
     },
 }
 impl ControlBehavior {
@@ -531,6 +534,56 @@ pub struct DeciderCombinatorParameters {
     pub outputs: Vec<DeciderCombinatorOutput>,
 }
 
+#[derive(Clone)]
+pub struct DeciderCombinatorCustomParameters {
+    pub conditions: Vec<DeciderCombinatorCondition>,
+    pub indices: Box<[(usize, i32)]>,
+    pub signal_list: Arc<[Value]>,
+}
+impl Serialize for DeciderCombinatorCustomParameters {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("DeciderCombinatorParameters", 2)?;
+        if self.conditions.is_empty() {
+            state.skip_field("conditions")
+        } else {
+            state.serialize_field("conditions", &self.conditions)
+        }?;
+        if self.indices.is_empty() {
+            state.skip_field("outputs")
+        } else {
+            let outputs = IndexedDeciderCombinatorOutputs {
+                indices: &self.indices,
+                signal_list: &self.signal_list,
+            };
+            state.serialize_field("outputs", &outputs)
+        }?;
+        state.end()
+    }
+}
+struct IndexedDeciderCombinatorOutputs<'a> {
+    indices: &'a [(usize, i32)],
+    signal_list: &'a [Value],
+}
+impl Serialize for IndexedDeciderCombinatorOutputs<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.indices.len()))?;
+        for &(i, constant) in self.indices {
+            seq.serialize_element(&IndexedDeciderCombinatorOutput {
+                signal: &self.signal_list[i],
+                copy_count_from_input: false,
+                constant,
+            })?;
+        }
+        seq.end()
+    }
+}
+#[derive(Serialize)]
+struct IndexedDeciderCombinatorOutput<'a> {
+    signal: &'a Value,
+    copy_count_from_input: bool,
+    constant: i32,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Icon {
     pub signal: Arc<SignalID>,
@@ -545,6 +598,11 @@ pub struct LogisticSection {
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<BlueprintLogisticFilter>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LogisticSections {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<LogisticSection>,
 }
 
 pub trait NetworkSwapper {
@@ -597,14 +655,16 @@ impl SignalID {
         Arc::clone(&DEFAULT_SIGNAL_TYPE)
     }
     pub fn default_quality() -> Option<Arc<str>> {
-        Some(Arc::from("normal"))
+        Some(Arc::clone(&DEFAULT_QUALITY))
     }
 
     pub fn is_default_signal_type(value: &Arc<str>) -> bool {
-        *value == SignalID::default_signal_type()
+        value == &*DEFAULT_SIGNAL_TYPE
     }
     pub fn is_none_or_default_quality(value: &Option<Arc<str>>) -> bool {
-        value.is_none() || *value == SignalID::default_quality()
+        value
+            .as_deref()
+            .is_none_or(|v| v == DEFAULT_QUALITY.as_ref())
     }
 }
 
