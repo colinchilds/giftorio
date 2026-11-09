@@ -147,7 +147,15 @@ function App() {
       const imageData = new Uint8Array(await formData.file.arrayBuffer());
       const name = formData.file.name.replace(/\.[^.]+$/, '');
       const extension = formData.outputFormat === 'json' ? 'json' : 'txt';
-      setBlueprintData(data => ({ ...data, fileName: `${name || 'blueprint'}.${extension}` }));
+      // Factorio won't drag-and-drop import files with non-ASCII names, so keep the
+      // download name to plain ASCII. The blueprint label below keeps the original.
+      const safeName = name
+        .normalize('NFKD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/[^A-Za-z0-9._-]+/g, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^[-._]+|[-._]+$/g, '');
+      setBlueprintData(data => ({ ...data, fileName: `${safeName || 'blueprint'}.${extension}` }));
       worker.postMessage({
         imageData,
         imageType,
