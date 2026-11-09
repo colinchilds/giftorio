@@ -4,7 +4,6 @@ use image::{DynamicImage, Frames, GenericImageView, RgbaImage};
 use image::imageops::FilterType;
 use rayon::prelude::*;
 use std::io::Cursor;
-use wasm_bindgen::prelude::*;
 use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_SECOND, PALETTE_SAMPLE_FACTOR, PALETTE_SAMPLE_PIXELS};
 
 
@@ -19,17 +18,17 @@ use crate::constants::{DEFAULT_FRAME_DELAY_MS, MS_PER_SECOND, PALETTE_SAMPLE_FAC
 ///
 /// # Returns
 ///
-/// An iterator that decodes one frame at a time, or a JavaScript error.
-pub fn get_frames<'a>(image_data: &'a [u8], image_type: &str) -> Result<Frames<'a>, JsValue> {
+/// An iterator that decodes one frame at a time, or an error message.
+pub fn get_frames<'a>(image_data: &'a [u8], image_type: &str) -> Result<Frames<'a>, String> {
     let cursor = Cursor::new(image_data);
     let decoder_result = match image_type {
         "gif" => image::codecs::gif::GifDecoder::new(cursor).map(|d| d.into_frames()),
         "webp" => image::codecs::webp::WebPDecoder::new(cursor).map(|d| d.into_frames()),
-        _ => return Err(JsValue::from_str("Unsupported image type. Only 'gif' and 'webp' are allowed.")),
+        _ => return Err("Unsupported image type. Only 'gif' and 'webp' are allowed.".to_string()),
     };
 
     decoder_result
-        .map_err(|e| JsValue::from_str(&format!("{} decode error: {}", image_type.to_uppercase(), e)))
+        .map_err(|e| format!("{} decode error: {}", image_type.to_uppercase(), e))
 }
 
 /// Reads the delay of every frame in milliseconds.
@@ -41,24 +40,24 @@ pub fn get_frames<'a>(image_data: &'a [u8], image_type: &str) -> Result<Frames<'
 ///
 /// # Returns
 ///
-/// A vector with one delay per frame, or a JavaScript error.
-fn get_frame_delays(image_data: &[u8], image_type: &str) -> Result<Vec<u32>, JsValue> {
+/// A vector with one delay per frame, or an error message.
+fn get_frame_delays(image_data: &[u8], image_type: &str) -> Result<Vec<u32>, String> {
     if image_type != "gif" {
         return get_frames(image_data, image_type)?
             .map(|frame| frame.map(|f| f.delay().numer_denom_ms().0))
             .collect::<Result<_, _>>()
-            .map_err(|e| JsValue::from_str(&format!("Frame decode error: {}", e)));
+            .map_err(|e| format!("Frame decode error: {}", e));
     }
 
     let mut options = gif::DecodeOptions::new();
     options.skip_frame_decoding(true);
     let mut decoder = options
         .read_info(Cursor::new(image_data))
-        .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?;
+        .map_err(|e| format!("GIF decode error: {}", e))?;
     let mut delays = Vec::new();
     while let Some(frame) = decoder
         .read_next_frame()
-        .map_err(|e| JsValue::from_str(&format!("GIF decode error: {}", e)))?
+        .map_err(|e| format!("GIF decode error: {}", e))?
     {
         // GIF delays are stored in units of 10ms.
         delays.push(u32::from(frame.delay) * 10);
@@ -85,14 +84,14 @@ pub fn process_image(
     max_size: u32,
     target_fps: u32,
     grayscale: bool,
-) -> Result<(Vec<DynamicImage>, u32), JsValue> {
+) -> Result<(Vec<DynamicImage>, u32), String> {
     // First pass: gather frame durations.
     let durations: Vec<u32> = get_frame_delays(image_data, image_type)?
         .into_iter()
         .map(|ms| if ms == 0 { DEFAULT_FRAME_DELAY_MS } else { ms })
         .collect();
     if durations.is_empty() {
-        return Err(JsValue::from_str("Image contains no frames"));
+        return Err("Image contains no frames".to_string());
     }
     let total_ms: u32 = durations.iter().sum();
 
@@ -137,7 +136,7 @@ pub fn process_image(
             continue;
         }
         let buffer = frame
-            .map_err(|e| JsValue::from_str(&format!("Frame decode error: {}", e)))?
+            .map_err(|e| format!("Frame decode error: {}", e))?
             .into_buffer();
         if target_size.is_none() {
             let (width, height) = buffer.dimensions();

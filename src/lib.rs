@@ -39,18 +39,23 @@ pub fn run_blueprint(
     name: &str,
     json: bool,
     on_chunk: &Function,
-) -> Result<(), JsValue> {
+) -> Result<(), JsError> {
+    // The internal modules report errors as plain strings; they become JS `Error`s here.
+    let to_js = |e: String| JsError::new(&e);
+
     // Process the image to extract frames and determine the effective FPS.
-    let (frames, fps) = image_processing::process_image(image_data, image_type, max_size, target_fps, grayscale)?;
+    let (frames, fps) = image_processing::process_image(image_data, image_type, max_size, target_fps, grayscale)
+        .map_err(to_js)?;
     if frames.is_empty() {
-        return Err(JsValue::from_str("No frames sampled!"));
+        return Err(JsError::new("No frames sampled!"));
     }
 
     // Build the complete blueprint JSON.
-    let blueprint_json = blueprint::update_full_blueprint(name, fps, frames, use_dlc, palette_size, grayscale, split_frames, substation_quality)?;
+    let blueprint_json = blueprint::update_full_blueprint(name, fps, frames, use_dlc, palette_size, grayscale, split_frames, substation_quality)
+        .map_err(to_js)?;
 
     // Encode the blueprint into a Factorio blueprint string, or write it out as JSON.
-    blueprint::encode_blueprint(&blueprint_json, json, ChunkWriter::new(on_chunk))?;
+    blueprint::encode_blueprint(&blueprint_json, json, ChunkWriter::new(on_chunk)).map_err(to_js)?;
     Ok(())
 }
 
@@ -90,8 +95,16 @@ impl Write for ChunkWriter<'_> {
         }
         self.callback
             .call1(&JsValue::NULL, &Uint8Array::from(&self.buffer[..]))
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "chunk callback failed"))?;
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("chunk callback failed: {}", js_error_message(&e))))?;
         self.buffer.clear();
         Ok(())
     }
+}
+
+/// Gets a readable message from a thrown JavaScript value, which may not be an `Error`.
+fn js_error_message(value: &JsValue) -> String {
+    if let Some(error) = value.dyn_ref::<js_sys::Error>() {
+        return error.message().into();
+    }
+    value.as_string().unwrap_or_else(|| format!("{:?}", value))
 }

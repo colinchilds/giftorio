@@ -12,7 +12,6 @@ use std::io::{BufWriter, Write};
 use std::iter::once;
 use std::ops::Range;
 use std::rc::Rc;
-use wasm_bindgen::JsValue;
 
 /// Encodes the blueprint as a Factorio blueprint string or as plain JSON, writing it to `out`.
 ///
@@ -25,38 +24,38 @@ use wasm_bindgen::JsValue;
 /// # Returns
 ///
 /// The writer, after everything has been written and flushed.
-pub fn encode_blueprint<W: Write>(blueprint: &Blueprint, json: bool, mut out: W) -> Result<W, JsValue> {
+pub fn encode_blueprint<W: Write>(blueprint: &Blueprint, json: bool, mut out: W) -> Result<W, String> {
     if json {
         report_progress(80, "Writing blueprint JSON...");
         serde_json::to_writer(&mut out, blueprint)
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
+            .map_err(|e| format!("Serialization error: {}", e))?;
         out.flush()
-            .map_err(|e| JsValue::from_str(&format!("Output error: {}", e)))?;
+            .map_err(|e| format!("Output error: {}", e))?;
         report_progress(100, "Blueprint generation complete. Loading to browser...");
         return Ok(out);
     }
     report_progress(80, "Encoding and compressing blueprint...");
     // Factorio blueprint strings are a version byte ('0') followed by the base64 data.
     out.write_all(b"0")
-        .map_err(|e| JsValue::from_str(&format!("Output error: {}", e)))?;
+        .map_err(|e| format!("Output error: {}", e))?;
     let base64_writer = EncoderWriter::new(out, base64::STANDARD);
     let encoder = ZlibEncoder::new(base64_writer, Compression::best());
     // Without buffering, serde's many tiny writes make zlib extremely slow.
     let mut writer = BufWriter::with_capacity(64 * 1024, encoder);
     serde_json::to_writer(&mut writer, blueprint)
-        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
+        .map_err(|e| format!("Serialization error: {}", e))?;
     // Not flush(): it triggers a zlib sync flush, which changes the output bytes.
     let encoder = writer
         .into_inner()
-        .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
+        .map_err(|e| format!("Compression error: {}", e))?;
     let mut base64_writer = encoder
         .finish()
-        .map_err(|e| JsValue::from_str(&format!("Compression finish error: {}", e)))?;
+        .map_err(|e| format!("Compression finish error: {}", e))?;
     let mut out = base64_writer
         .finish()
-        .map_err(|e| JsValue::from_str(&format!("Base64 finish error: {}", e)))?;
+        .map_err(|e| format!("Base64 finish error: {}", e))?;
     out.flush()
-        .map_err(|e| JsValue::from_str(&format!("Output error: {}", e)))?;
+        .map_err(|e| format!("Output error: {}", e))?;
     report_progress(100, "Blueprint generation complete. Loading to browser...");
     Ok(out)
 }
@@ -393,14 +392,14 @@ impl ColorMode {
     ///
     /// # Returns
     ///
-    /// The color mode, or a JavaScript error for an unsupported palette size.
-    pub fn new(palette_size: u32, grayscale: bool, frames: &[DynamicImage]) -> Result<Self, JsValue> {
+    /// The color mode, or an error message for an unsupported palette size.
+    pub fn new(palette_size: u32, grayscale: bool, frames: &[DynamicImage]) -> Result<Self, String> {
         if palette_size == 0 {
             return Ok(if grayscale { ColorMode::Grayscale { bits: 8, multiplier: 1 } } else { ColorMode::FullColor });
         }
         let max_size = if grayscale { 256 } else { MAX_COLOR_PALETTE_SIZE };
         if palette_size < 2 || palette_size > max_size || !palette_size.is_power_of_two() {
-            return Err(JsValue::from_str(&format!("Unsupported palette size: {}", palette_size)));
+            return Err(format!("Unsupported palette size: {}", palette_size));
         }
         let bits = palette_size.trailing_zeros();
         if grayscale {
@@ -945,14 +944,14 @@ pub fn update_full_blueprint(
     grayscale: bool,
     split_frames: bool,
     substation_quality: String,
-) -> Result<Blueprint, JsValue> {
+) -> Result<Blueprint, String> {
     report_progress(0, "Starting blueprint update");
 
     // Get signals internally.
     let signals = get_signals_with_quality(use_dlc);
 
     if sampled_frames.is_empty() {
-        return Err(JsValue::from_str("No sampled frames"));
+        return Err("No sampled frames".to_string());
     }
 
     let mode = ColorMode::new(palette_size, grayscale, &sampled_frames)?;
@@ -962,7 +961,7 @@ pub fn update_full_blueprint(
     let (full_width, full_height) = sampled_frames[0].dimensions();
     let max_columns_per_group = ((signals.len() as u32) / full_height).min(full_width);
     if max_columns_per_group < 1 {
-        return Err(JsValue::from_str("Not enough signals for even one column of lamps!"));
+        return Err("Not enough signals for even one column of lamps!".to_string());
     }
     let num_groups = full_width.div_ceil(max_columns_per_group);
     let columns_per_group = full_width.div_ceil(num_groups);

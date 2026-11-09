@@ -31,7 +31,8 @@ async function run() {
       postMessage({ blueprint: new Blob(parts, { type: "text/plain" }) });
     } catch (e) {
       console.error("Error generating blueprint:", e);
-      postMessage({ error: e.toString() });
+      // Errors from Rust are JS `Error`s; anything else thrown is reported as-is.
+      postMessage({ error: e instanceof Error ? e.message : String(e) });
     }
   });
 }
